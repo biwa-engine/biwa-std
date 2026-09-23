@@ -8,3 +8,9 @@ Standard library of Biwa Language `std`.
 
 It provides not only APIs for core language features like general-purpose languages' standard libraries,
 but also APIs for implementing visual novel games.
+
+## ライセンス / LICENSE
+
+MIT ライセンスです。 [LICENSE](./LICENSE)を参照してください。
+
+MIT Licensed. See [LICENSE](./LICENSE).
