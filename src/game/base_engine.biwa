@@ -26,6 +26,13 @@
     flushContent,
     pushContentText,
   } from "@biwa/engine/api/message";
+  import {
+    allocUiId,
+    createUiElement,
+    pushUiChild,
+    setUiProperty,
+    setUiPropertyString,
+  } from "@biwa/engine/api/ui";
   import { Sys, type BiwaSyscall } from "@biwa/engine/vm/syscall";
 }}
 
@@ -69,6 +76,14 @@
     (func $sys_vec_get (param externref i32) (result anyref)))
   (import "biwa:engine" "sys_map_insert" (func $sys_map_insert (param externref anyref anyref)))
   (import "biwa:engine" "sys_map_get" (func $sys_map_get (param externref anyref) (result anyref)))
+
+  ;; UI Element (docs/ui-api.md)。kind の番号は engine の `api/ui.ts` が正。
+  (import "biwa:engine" "sys_ui_create" (func $sys_ui_create (param i32) (result i32)))
+  (import "biwa:engine" "sys_ui_set_property"
+    (func $sys_ui_set_property (param i32 i32 i32 i32 i32 i32 i32 i32 f32)))
+  (import "biwa:engine" "sys_ui_set_property_with_string"
+    (func $sys_ui_set_property_with_string (param i32 i32 i32 i32 f32 externref)))
+  (import "biwa:engine" "sys_ui_push_child" (func $sys_ui_push_child (param i32 i32)))
 }}
 
 import package::string::String;
@@ -345,4 +360,106 @@ fn float_to_string(val: Float) -> String {{
 fn float_to_string(val: Float) -> String {{
   local.get 0
   call $sys_float_to_string
+}}
+
+// --- UI Element --------------------------------------------------------
+//
+// `docs/ui-api.md` の Syscall 節をそのまま実装する。
+// Element kind / property kind の番号はエンジンとの取り決めで、
+// 一覧は engine の `src/engine/api/ui.ts` にある。
+//
+// create と set_property* を済ませてから push_child でアトミックに
+// 出現させる設計であり、この3段を隠すのは `game/ui.biwa` の仕事である。
+
+// UI Element を作り、その id を返す。
+//
+// `kind` は Element の種類 (Window / Page / Box / Link / Horizontal / ...)。
+// 積んで直ちに返る syscall なので、この呼び出しは待たない。
+[[native(arch="typescript")]]
+fn sys_ui_create(kind: Uint) -> Uint {{
+  const id = allocUiId();
+  createUiElement(id, kind);
+  return id;
+}}
+
+[[native(arch="wasm")]]
+fn sys_ui_create(kind: Uint) -> Uint {{
+  local.get 0
+  call $sys_ui_create
+}}
+
+// 数値の property を設定する。
+//
+// `val_u1`..`val_u4` / `val_i1`..`val_i2` / `val_f` のどれを使うかは
+// property kind ごとに決まっている (例: width は val_u1 が単位、val_f が値)。
+// 使わない枠は 0 で埋める。immediate の 0 は費用がほぼ無いため、
+// property の組み合わせごとに syscall を分けるより、この形のほうが安い。
+[[native(arch="typescript")]]
+fn sys_ui_set_property(
+  ui_id: Uint, kind: Uint,
+  val_u1: Uint, val_u2: Uint, val_u3: Uint, val_u4: Uint,
+  val_i1: Int, val_i2: Int,
+  val_f: Float,
+) {{
+  setUiProperty(ui_id, kind, val_u1, val_u2, val_u3, val_u4, val_i1, val_i2, val_f);
+}}
+
+[[native(arch="wasm")]]
+fn sys_ui_set_property(
+  ui_id: Uint, kind: Uint,
+  val_u1: Uint, val_u2: Uint, val_u3: Uint, val_u4: Uint,
+  val_i1: Int, val_i2: Int,
+  val_f: Float,
+) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  local.get 4
+  local.get 5
+  local.get 6
+  local.get 7
+  local.get 8
+  call $sys_ui_set_property
+}}
+
+// 文字列を伴う property を設定する (例: Page の page_id, Link の on_click_link)。
+[[native(arch="typescript")]]
+fn sys_ui_set_property_with_string(
+  ui_id: Uint, kind: Uint,
+  val_u: Uint, val_i: Int, val_f: Float,
+  val_s: String,
+) {{
+  setUiPropertyString(ui_id, kind, val_u, val_i, val_f, val_s);
+}}
+
+[[native(arch="wasm")]]
+fn sys_ui_set_property_with_string(
+  ui_id: Uint, kind: Uint,
+  val_u: Uint, val_i: Int, val_f: Float,
+  val_s: String,
+) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  local.get 4
+  local.get 5
+  call $sys_ui_set_property_with_string
+}}
+
+// 子 Element を親に積む。
+//
+// 親が子を複数持てるなら末尾に追加、1つのみ持てるなら既存を置き換え、
+// 持てないなら子はツリーから削除される (`docs/ui-api.md` の Syscall 節)。
+[[native(arch="typescript")]]
+fn sys_ui_push_child(parent: Uint, child: Uint) {{
+  pushUiChild(parent, child);
+}}
+
+[[native(arch="wasm")]]
+fn sys_ui_push_child(parent: Uint, child: Uint) {{
+  local.get 0
+  local.get 1
+  call $sys_ui_push_child
 }}
