@@ -10,6 +10,7 @@ import package::game::base_engine::sys_content_flush;
 import package::game::base_engine::sys_content_clear;
 import package::game::base_engine::sys_ui_create;
 import package::game::base_engine::sys_ui_set_property;
+import package::game::base_engine::sys_ui_set_property_with_string;
 import package::game::base_engine::sys_ui_push_child;
 import package::game::base_engine::wait;
 
@@ -136,7 +137,9 @@ fn element_kind_link() -> Uint { 3 }
 fn element_kind_horizontal() -> Uint { 4 }
 fn element_kind_vertical() -> Uint { 5 }
 fn element_kind_horizontal_grid() -> Uint { 6 }
-// 7 以降は Image / Canvas / MessageArea (Step2/3) 用に空けてある。
+// std 側の型名は `UiImage` (`std::game::image::Image` との衝突を避けるため)。
+fn element_kind_image() -> Uint { 7 }
+// 8 以降は Canvas / MessageArea (Step3) 用に空けてある。
 // Button は funcref 前提のため割り当てない (`docs/ui-api.md`)。
 
 // property の kind 番号。engine の `api/ui.ts` の `PropertyKind` と一致させる。
@@ -152,8 +155,15 @@ fn property_kind_padding_top() -> Uint { 8 }
 fn property_kind_padding_bottom() -> Uint { 9 }
 fn property_kind_background_color() -> Uint { 10 }
 fn property_kind_column() -> Uint { 11 }
+fn property_kind_text_size() -> Uint { 12 }
+fn property_kind_text_weight() -> Uint { 13 }
+fn property_kind_text_color() -> Uint { 14 }
 fn property_kind_page_id() -> Uint { 100 }
 fn property_kind_on_click_link() -> Uint { 101 }
+fn property_kind_text() -> Uint { 102 }
+fn property_kind_text_font() -> Uint { 103 }
+fn property_kind_background_image() -> Uint { 104 }
+fn property_kind_image() -> Uint { 105 }
 
 // width / height / margin / padding が取れる単位。engine の `Unit` と一致させる。
 fn ui_unit_vw() -> Uint { 0 }
@@ -172,6 +182,14 @@ fn vw(value: Float) -> UiSize { UiSize::Vw(value) }
 fn vh(value: Float) -> UiSize { UiSize::Vh(value) }
 fn percent(value: Float) -> UiSize { UiSize::Percent(value) }
 
+// `background_color` と `background_image` は排他である (`docs/ui-api.md`)。
+// 2 つの `Option` を別々に持たせると両方設定できてしまうので、
+// 1 つの enum にして型で排他性を保証する。
+enum Background {
+  Color(Color),
+  Image(String),
+}
+
 // `Option[UiSize]` を数値 property として発行する。未設定 (`None`) なら何もしない。
 //
 // パターンを入れ子にできない制限 (`docs/std-api.md`) があるため、
@@ -182,6 +200,21 @@ fn set_size_property(id: Uint, kind: Uint, size: Option[UiSize]) {
       UiSize::Vw(v) => { sys_ui_set_property(id, kind, ui_unit_vw(), 0, 0, 0, 0, 0, v); }
       UiSize::Vh(v) => { sys_ui_set_property(id, kind, ui_unit_vh(), 0, 0, 0, 0, 0, v); }
       UiSize::Percent(v) => { sys_ui_set_property(id, kind, ui_unit_percent(), 0, 0, 0, 0, 0, v); }
+    }
+  }
+}
+
+// `Option[Background]` を数値または文字列 property として発行する。
+// 未設定 (`None`) なら何もしない。
+fn apply_background(id: Uint, background: Option[Background]) {
+  if background.is_some() {
+    match background.unwrap() {
+      Background::Color(c) => {
+        sys_ui_set_property(id, property_kind_background_color(), c.r, c.g, c.b, c.a, 0, 0, 0.0);
+      }
+      Background::Image(path) => {
+        sys_ui_set_property_with_string(id, property_kind_background_image(), 0, 0, 0.0, path);
+      }
     }
   }
 }
@@ -200,7 +233,7 @@ fn apply_layout_properties(
   padding_right: Option[UiSize],
   padding_top: Option[UiSize],
   padding_bottom: Option[UiSize],
-  background_color: Option[Color],
+  background: Option[Background],
 ) {
   set_size_property(id, property_kind_width(), width);
   set_size_property(id, property_kind_height(), height);
@@ -212,9 +245,32 @@ fn apply_layout_properties(
   set_size_property(id, property_kind_padding_right(), padding_right);
   set_size_property(id, property_kind_padding_top(), padding_top);
   set_size_property(id, property_kind_padding_bottom(), padding_bottom);
-  if background_color.is_some() {
-    let c = background_color.unwrap();
-    sys_ui_set_property(id, property_kind_background_color(), c.r, c.g, c.b, c.a, 0, 0, 0.0);
+  apply_background(id, background);
+}
+
+// Link に表示するテキストの装飾 property をまとめて発行する。
+// 現時点でテキストを持てるのは Link だけである。
+fn apply_text_properties(
+  id: Uint,
+  text: Option[String],
+  text_font: Option[String],
+  text_size: Option[UiSize],
+  text_weight: Option[Uint],
+  text_color: Option[Color],
+) {
+  if text.is_some() {
+    sys_ui_set_property_with_string(id, property_kind_text(), 0, 0, 0.0, text.unwrap());
+  }
+  if text_font.is_some() {
+    sys_ui_set_property_with_string(id, property_kind_text_font(), 0, 0, 0.0, text_font.unwrap());
+  }
+  set_size_property(id, property_kind_text_size(), text_size);
+  if text_weight.is_some() {
+    sys_ui_set_property(id, property_kind_text_weight(), text_weight.unwrap(), 0, 0, 0, 0, 0, 0.0);
+  }
+  if text_color.is_some() {
+    let c = text_color.unwrap();
+    sys_ui_set_property(id, property_kind_text_color(), c.r, c.g, c.b, c.a, 0, 0, 0.0);
   }
 }
 
@@ -239,6 +295,7 @@ enum UiElement {
   Horizontal(Horizontal),
   Vertical(Vertical),
   HorizontalGrid(HorizontalGrid),
+  Image(UiImage),
 }
 
 impl UiElement {
@@ -251,6 +308,7 @@ impl UiElement {
       UiElement::Horizontal(el) => el.materialize(),
       UiElement::Vertical(el) => el.materialize(),
       UiElement::HorizontalGrid(el) => el.materialize(),
+      UiElement::Image(el) => el.materialize(),
     }
   }
 }
@@ -273,6 +331,7 @@ struct Window {
 struct Page {
   page_id: String,
   children: Vec[UiElement],
+  background: Option[Background],
 }
 
 // 領域を区切る最も基本的な Element。子を 1 つだけ持つ。
@@ -288,11 +347,11 @@ struct Box {
   padding_right: Option[UiSize],
   padding_top: Option[UiSize],
   padding_bottom: Option[UiSize],
-  background_color: Option[Color],
+  background: Option[Background],
 }
 
 // リンク。クリックすると同じ Window 内の、指定した page_id を持つ Page に遷移する。
-// 子は持てない。
+// 子は持てない。テキストを持てる唯一の Element (Step2)。
 struct Link {
   on_click_link: String,
   width: Option[UiSize],
@@ -305,7 +364,12 @@ struct Link {
   padding_right: Option[UiSize],
   padding_top: Option[UiSize],
   padding_bottom: Option[UiSize],
-  background_color: Option[Color],
+  background: Option[Background],
+  text: Option[String],
+  text_font: Option[String],
+  text_size: Option[UiSize],
+  text_weight: Option[Uint],
+  text_color: Option[Color],
 }
 
 // 子を水平に並べる Layout Element。
@@ -321,7 +385,7 @@ struct Horizontal {
   padding_right: Option[UiSize],
   padding_top: Option[UiSize],
   padding_bottom: Option[UiSize],
-  background_color: Option[Color],
+  background: Option[Background],
 }
 
 // 子を垂直に並べる Layout Element。
@@ -337,7 +401,7 @@ struct Vertical {
   padding_right: Option[UiSize],
   padding_top: Option[UiSize],
   padding_bottom: Option[UiSize],
-  background_color: Option[Color],
+  background: Option[Background],
 }
 
 // `column` 本の列に並べ、折り返す Layout Element。
@@ -354,5 +418,26 @@ struct HorizontalGrid {
   padding_right: Option[UiSize],
   padding_top: Option[UiSize],
   padding_bottom: Option[UiSize],
-  background_color: Option[Color],
+  background: Option[Background],
+}
+
+// 画像を表示する Element。子は持てない。
+//
+// std 上の型名は `UiImage` である。`struct Image` は
+// `std::game::image::Image` (canvas に置く画像) が既に使っているため、
+// 同じファイルは元より、同じスコープに両方 import すると名前が衝突する
+// (Biwa には import のエイリアスが無い)。エンジン側の kind 番号には
+// 影響しない、std 側だけの命名判断である。
+struct UiImage {
+  path: String,
+  width: Option[UiSize],
+  height: Option[UiSize],
+  margin_left: Option[UiSize],
+  margin_right: Option[UiSize],
+  margin_top: Option[UiSize],
+  margin_bottom: Option[UiSize],
+  padding_left: Option[UiSize],
+  padding_right: Option[UiSize],
+  padding_top: Option[UiSize],
+  padding_bottom: Option[UiSize],
 }

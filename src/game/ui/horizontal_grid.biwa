@@ -2,6 +2,7 @@
 //
 // struct 定義は `game/ui.biwa` にある。
 
+import package::string::String;
 import package::option::Option;
 import package::option::Option::Some;
 import package::option::Option::None;
@@ -12,6 +13,7 @@ import package::game::base_engine::sys_ui_create;
 import package::game::base_engine::sys_ui_set_property;
 import package::game::ui::UiElement;
 import package::game::ui::UiSize;
+import package::game::ui::Background;
 import package::game::ui::HorizontalGrid;
 import package::game::ui::element_kind_horizontal_grid;
 import package::game::ui::property_kind_column;
@@ -33,7 +35,7 @@ impl HorizontalGrid {
       padding_right = None,
       padding_top = None,
       padding_bottom = None,
-      background_color = None,
+      background = None,
     }
   }
 
@@ -98,7 +100,13 @@ impl HorizontalGrid {
   }
 
   fn background_color(self, value: Color) -> Self {
-    self.background_color = Some(value);
+    self.background = Some(Background::Color(value));
+    self
+  }
+
+  // `background_color` とは排他 (どちらか後に呼んだ方が勝つ)。
+  fn background_image(self, value: String) -> Self {
+    self.background = Some(Background::Image(value));
     self
   }
 
@@ -109,7 +117,7 @@ impl HorizontalGrid {
       id, self.width, self.height,
       self.margin_left, self.margin_right, self.margin_top, self.margin_bottom,
       self.padding_left, self.padding_right, self.padding_top, self.padding_bottom,
-      self.background_color,
+      self.background,
     );
     sys_ui_set_property(id, property_kind_column(), self.column, 0, 0, 0, 0, 0, 0.0);
     push_children(id, self.children);
