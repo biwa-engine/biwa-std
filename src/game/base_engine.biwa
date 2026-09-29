@@ -87,7 +87,7 @@
 }}
 
 import package::string::String;
-import package::game::window::Size;
+import package::game::ui::Size;
 
 // syscall の記述子。中身はエンジンとの規約であり、Biwa 側からは不透明。
 [[lang="syscall"]]

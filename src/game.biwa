@@ -2,8 +2,8 @@ import package::string::String;
 import package::option::Option;
 import image::Image;
 import image::CanvasObject;
-import window::Window;
-import window::Position;
+import ui::GameWindow;
+import ui::Position;
 import config::Config;
 
 // 進行中のノベルゲームを表す構造体
@@ -19,7 +19,7 @@ struct Game[C, S] {
   name: String, // ゲームの名前
   characters: C,
   states: S,
-  window: Window,
+  window: GameWindow,
 
   // 文字速度・サイズ・色などの設定。
   //
@@ -34,7 +34,7 @@ impl[C, S] Game[C, S] {
       name = name,
       characters = characters,
       states = states,
-      window = Window::new(),
+      window = GameWindow::new(),
       config = config,
     }
   }

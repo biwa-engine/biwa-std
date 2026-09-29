@@ -1,0 +1,36 @@
+// `Page` の impl。
+//
+// struct 定義は `game/ui.biwa` にある。`Page` は `UiElement` の variant では
+// ないので (Window の子は Page のみ、という制約を型で表すため)、
+// 木の消費点は `UiElement::materialize` ではなくここの `materialize_into` になる。
+// 呼ばれるのは `Window::show` からだけを想定している。
+
+import package::string::String;
+import package::collections::Vec;
+import package::game::base_engine::sys_ui_create;
+import package::game::base_engine::sys_ui_set_property_with_string;
+import package::game::base_engine::sys_ui_push_child;
+import package::game::ui::UiElement;
+import package::game::ui::Page;
+import package::game::ui::element_kind_page;
+import package::game::ui::property_kind_page_id;
+import package::game::ui::push_children;
+
+impl Page {
+  fn new(page_id: String, children: Vec[UiElement]) -> Self {
+    Self { page_id = page_id, children = children }
+  }
+
+  fn push(self, child: UiElement) -> Self {
+    self.children.push(child);
+    self
+  }
+
+  // 木を辿って syscall を発行し、`window_id` の子として積む。
+  fn materialize_into(self, window_id: Uint) {
+    let id = sys_ui_create(element_kind_page());
+    sys_ui_set_property_with_string(id, property_kind_page_id(), 0, 0, 0.0, self.page_id);
+    push_children(id, self.children);
+    sys_ui_push_child(window_id, id);
+  }
+}

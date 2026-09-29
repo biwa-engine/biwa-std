@@ -1,0 +1,36 @@
+// `Window` (UI の root Element) の impl。
+//
+// struct 定義は `game/ui.biwa` にある。ここにはコンストラクタと、
+// 木を辿って syscall を発行する `materialize` 相当の `show` を置く。
+
+import package::collections::Vec;
+import package::game::base_engine::sys_ui_create;
+import package::game::ui::Window;
+import package::game::ui::Page;
+import package::game::ui::element_kind_window;
+
+impl Window {
+  // 子となる Page の列から Window を組み立てる。まだ syscall は発行しない。
+  fn new(pages: Vec[Page]) -> Self {
+    Self { pages = pages }
+  }
+
+  // Page を追加する。
+  fn push(self, page: Page) -> Self {
+    self.pages.push(page);
+    self
+  }
+
+  // 木を辿って syscall を発行し、実際に画面へ出現させる。
+  // 最初に積まれた Page が既定で表示される (エンジン側の規則)。
+  // Window は UiElement ではないため、この関数が Page 側の消費点でもある。
+  fn show(self) -> Uint {
+    let id = sys_ui_create(element_kind_window());
+    let i = 0;
+    while i < self.pages.len() {
+      self.pages.get(i).unwrap().materialize_into(id);
+      i = i + 1;
+    }
+    id
+  }
+}

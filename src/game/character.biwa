@@ -8,7 +8,7 @@ import package::game::image::Image;
 import package::game::image::CanvasObject;
 import package::game::image::ObjectBatchChain;
 import package::game::image::ObjectParamChain;
-import package::game::window::Position;
+import package::game::ui::Position;
 
 impl[P] Character[P] {
   fn new(
