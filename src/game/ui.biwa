@@ -218,6 +218,11 @@ fn property_kind_background_image() -> Uint { 104 }
 fn property_kind_image() -> Uint { 105 }
 // すべての Element が持てる任意の識別子。
 fn property_kind_id() -> Uint { 106 }
+// Page が scene を映す出力先。値は Page の中の Canvas / MessageArea の `id` 文字列。
+fn property_kind_page_canvas() -> Uint { 107 }
+fn property_kind_page_message_area() -> Uint { 108 }
+// Window の、scene を映す Page の page_id。この Page に遷移すると scene が始まる (§14 S8)。
+fn property_kind_window_scene_page_id() -> Uint { 109 }
 
 // width / height / margin / padding が取れる単位。engine の `Unit` と一致させる。
 fn ui_unit_vw() -> Uint { 0 }
@@ -278,6 +283,13 @@ fn apply_background(id: Uint, background: Option[Background]) {
 fn apply_id(id: Uint, name: Option[String]) {
   if name.is_some() {
     sys_ui_set_property_with_string(id, property_kind_id(), 0, 0, 0.0, name.unwrap());
+  }
+}
+
+// `Option[String]` を文字列 property として発行する。未設定 (`None`) なら何もしない。
+fn set_optional_string_property(id: Uint, kind: Uint, value: Option[String]) {
+  if value.is_some() {
+    sys_ui_set_property_with_string(id, kind, 0, 0, 0.0, value.unwrap());
   }
 }
 
@@ -392,6 +404,8 @@ impl UiElement {
 struct Window {
   pages: Vec[Page],
   id: Option[String],
+  // scene を映す Page の page_id。この Page に遷移すると scene が始まる (§14 S8)。
+  scene_page_id: Option[String],
 }
 
 // ページ。Window の子として、page_id で区別され、Link で遷移できる。
@@ -400,6 +414,10 @@ struct Page {
   children: Vec[UiElement],
   background: Option[Background],
   id: Option[String],
+  // scene を映す Page のとき、Canvas API / Content API の出力先にする
+  // この Page の中の Canvas / MessageArea の `id`。
+  canvas: Option[String],
+  message_area: Option[String],
 }
 
 // 領域を区切る最も基本的な Element。子を 1 つだけ持つ。

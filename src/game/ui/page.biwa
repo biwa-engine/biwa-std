@@ -22,10 +22,20 @@ import package::game::ui::property_kind_page_id;
 import package::game::ui::push_children;
 import package::game::ui::apply_background;
 import package::game::ui::apply_id;
+import package::game::ui::property_kind_page_canvas;
+import package::game::ui::property_kind_page_message_area;
+import package::game::ui::set_optional_string_property;
 
 impl Page {
   fn new(page_id: String, children: Vec[UiElement]) -> Self {
-    Self { page_id = page_id, children = children, background = None, id = None }
+    Self {
+      page_id = page_id,
+      children = children,
+      background = None,
+      id = None,
+      canvas = None,
+      message_area = None,
+    }
   }
 
   fn push(self, child: UiElement) -> Self {
@@ -36,6 +46,19 @@ impl Page {
   // すべての Element が持てる任意の識別子。
   fn id(self, value: String) -> Self {
     self.id = Some(value);
+    self
+  }
+
+  // scene を映す Page のとき、Canvas API の出力先にする Canvas の `id`。
+  // Window の `scene_page_id` がこの Page を指しているときに使われる。
+  fn canvas(self, value: String) -> Self {
+    self.canvas = Some(value);
+    self
+  }
+
+  // scene を映す Page のとき、Content API の出力先にする MessageArea の `id`。
+  fn message_area(self, value: String) -> Self {
+    self.message_area = Some(value);
     self
   }
 
@@ -56,6 +79,8 @@ impl Page {
     apply_id(id, self.id);
     sys_ui_set_property_with_string(id, property_kind_page_id(), 0, 0, 0.0, self.page_id);
     apply_background(id, self.background);
+    set_optional_string_property(id, property_kind_page_canvas(), self.canvas);
+    set_optional_string_property(id, property_kind_page_message_area(), self.message_area);
     push_children(id, self.children);
     sys_ui_push_child(window_id, id);
   }

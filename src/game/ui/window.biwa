@@ -13,11 +13,13 @@ import package::game::ui::Window;
 import package::game::ui::Page;
 import package::game::ui::element_kind_window;
 import package::game::ui::apply_id;
+import package::game::ui::property_kind_window_scene_page_id;
+import package::game::ui::set_optional_string_property;
 
 impl Window {
   // 子となる Page の列から Window を組み立てる。まだ syscall は発行しない。
   fn new(pages: Vec[Page]) -> Self {
-    Self { pages = pages, id = None }
+    Self { pages = pages, id = None, scene_page_id = None }
   }
 
   // Page を追加する。
@@ -32,12 +34,22 @@ impl Window {
     self
   }
 
+  // scene を映す Page の page_id。この Page に遷移すると scene が始まる (§14 S8)。
+  // その Page の `canvas` / `message_area` が scene の出力先になる。
+  fn scene_page_id(self, value: String) -> Self {
+    self.scene_page_id = Some(value);
+    self
+  }
+
   // 木を辿って syscall を発行し、実際に画面へ出現させる。
   // 最初に積まれた Page が既定で表示される (エンジン側の規則)。
   // Window は UiElement ではないため、この関数が Page 側の消費点でもある。
   fn show(self) -> Uint {
     let id = sys_ui_create(element_kind_window());
     apply_id(id, self.id);
+    // Page を積む前に設定する。最初の Page が積まれた時点で表示されるので、
+    // それが scene の Page なら、その時点で分かっている必要がある。
+    set_optional_string_property(id, property_kind_window_scene_page_id(), self.scene_page_id);
     let i = 0;
     while i < self.pages.len() {
       self.pages.get(i).unwrap().materialize_into(id);
