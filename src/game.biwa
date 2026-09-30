@@ -3,6 +3,7 @@ import package::option::Option;
 import image::Image;
 import image::CanvasObject;
 import ui::GameWindow;
+import ui::GameCanvas;
 import ui::Position;
 import config::Config;
 
@@ -40,6 +41,15 @@ impl[C, S] Game[C, S] {
       config = config,
     }
   }
+
+  // Canvas API の出力先。
+  //
+  // `GameWindow` に Canvas が無い (ランタイムが渡さなかった) のに描こうとするのは
+  // ゲーム側の構成の誤りなので、黙って捨てずに止める
+  // (`Option::unwrap` → `abort`。Content API の `message_area_of` と同じ扱い)。
+  fn canvas(self) -> GameCanvas {
+    self.window.canvas.unwrap()
+  }
 }
 
 // キャラクターを表す構造体
@@ -55,7 +65,13 @@ struct Character[P] {
   current_visual: Option[CanvasObject],
   current_face: Option[CanvasObject],
   current_position: Option[Position], // キャラクターの画面上の位置。noneならば画面上にない
-  // window: Window, // Window の API を利用するために参照を内部的に保持
+  // 出力先の束。描画 (`appear` など) の出力先をここから取る。
+  //
+  // **暫定**: `Character::new` は `Game` を受け取るが、今は `GameWindow` だけを保持する。
+  // `Game[C, S]` は将来 `Game[S]` (S = ユーザ定義の状態) になり、Character は
+  // `Game` の状態を共有・更新するようになる想定だが、それまでは `Character` 型への
+  // 影響を最小にするためにこの形にしている。
+  window: GameWindow,
 }
 
 // // ゲーム開発者は、独自定義の型でジェネリクスを埋めた具体の型についてimplする

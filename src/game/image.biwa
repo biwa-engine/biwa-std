@@ -1,5 +1,6 @@
 import package::string::String;
 import package::time::Duration;
+import package::game::ui::GameCanvas;
 
 // --- パラメータと遷移の種類 ------------------------------------------------
 //
@@ -42,10 +43,16 @@ impl Image {
   // キャンバス上に描画する。
   // CanvasObject を返すので、以降はそれを使ってアニメーションなどを操作する。
   //
+  // `canvas` は出力先 (UI Element `Canvas`)。座標の原点はその中央である。
+  // **暫定の形**: 画像を直接描く API はいずれ std の抽象 (Character など) の
+  // 内側に隠れる想定なので、出力先はひとまず第一引数で受け取る。
+  //
   // `w` / `h` が負なら「指定しない」で、画像の元のサイズから決まる。
   // 片方だけ正ならアスペクトを保つ。
-  fn show_in_canvas(self, layer: Uint, x: Int, y: Int, w: Int, h: Int, alpha: Int) -> CanvasObject {
-    CanvasObject::create(self, layer, x, y, w, h, alpha)
+  fn show_in_canvas(
+    self, canvas: GameCanvas, layer: Uint, x: Int, y: Int, w: Int, h: Int, alpha: Int,
+  ) -> CanvasObject {
+    CanvasObject::create(self, canvas, layer, x, y, w, h, alpha)
   }
 }
 
@@ -63,6 +70,8 @@ impl Image {
 //   連続した遷移の開始時刻を計算するために持つ。
 struct CanvasObject {
   id: Uint,
+  // 置いた先の Canvas。差し替え (`Character::change_visual`) で同じ所に出し直すのに使う。
+  canvas: GameCanvas,
   layer: Uint,
   x: Int,
   y: Int,
@@ -79,11 +88,15 @@ struct CanvasObject {
 }
 
 impl CanvasObject {
-  fn create(image: Image, layer: Uint, x: Int, y: Int, w: Int, h: Int, alpha: Int) -> Self {
-    let id = package::game::base_engine::create_object(image.path, layer, x, y, w, h, alpha, 0);
+  fn create(
+    image: Image, canvas: GameCanvas, layer: Uint, x: Int, y: Int, w: Int, h: Int, alpha: Int,
+  ) -> Self {
+    let id = package::game::base_engine::create_object(
+      canvas.ui_id, image.path, layer, x, y, w, h, alpha, 0);
 
     Self {
       id = id,
+      canvas = canvas,
       layer = layer,
       x = x,
       y = y,
@@ -108,6 +121,8 @@ impl CanvasObject {
   fn absent() -> Self {
     Self {
       id = 0,
+      // ui_id も 0 は空き (「無し」)。
+      canvas = GameCanvas { ui_id = 0 },
       layer = 0,
       x = 0,
       y = 0,

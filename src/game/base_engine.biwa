@@ -54,9 +54,10 @@
   (import "biwa:engine" "sys_content_flush" (func $sys_content_flush (param i32)))
   (import "biwa:engine" "sys_content_clear" (func $sys_content_clear (param i32)))
   (import "biwa:engine" "sys_wait" (func $sys_wait))
+  ;; Canvas API。第一引数は出力先の Canvas の ui_id。
   (import "biwa:engine" "sys_create_object"
     (func $sys_create_object
-      (param externref i32 i32 i32 i32 i32 i32 i32) (result i32)))
+      (param i32 externref i32 i32 i32 i32 i32 i32 i32) (result i32)))
   (import "biwa:engine" "sys_delete_object" (func $sys_delete_object (param i32 i32)))
   (import "biwa:engine" "sys_add_transition"
     (func $sys_add_transition (param i32 i32 i32 i32 i32 i32)))
@@ -119,6 +120,10 @@ type Syscall = {{
 
 // オブジェクトを canvas に置き、その id を返す。
 //
+// `canvas_ui_id` は出力先の UI Element `Canvas`。Canvas API の syscall は
+// 第一引数で出力先を指定する (`docs/ui-api-impl-status.md` §14)。
+// 座標の原点はその Canvas の中央である。以降の遷移・削除はオブジェクトの id で指す。
+//
 // `path` はパッケージの `assets/` を基準とした相対パスである。
 // `w` / `h` が負なら「指定しない」で、画像の元のサイズから決まる。
 // 片方だけ正ならアスペクトを保つ。
@@ -127,16 +132,18 @@ type Syscall = {{
 // 読み込みに失敗しても id は返る (ゲーム側にできることが無いため)。
 [[native(arch="typescript")]]
 fn sys_create_object(
+  canvas_ui_id: Uint,
   path: String, layer: Uint,
   x: Int, y: Int, w: Int, h: Int, alpha: Int, theta: Int,
 ) -> Uint {{
   const id = allocObjectId();
-  createObject(id, path, layer, x, y, w, h, alpha, theta);
+  createObject(id, canvas_ui_id, path, layer, x, y, w, h, alpha, theta);
   return id;
 }}
 
 [[native(arch="wasm")]]
 fn sys_create_object(
+  canvas_ui_id: Uint,
   path: String, layer: Uint,
   x: Int, y: Int, w: Int, h: Int, alpha: Int, theta: Int,
 ) -> Uint {{
@@ -148,6 +155,7 @@ fn sys_create_object(
   local.get 5
   local.get 6
   local.get 7
+  local.get 8
   call $sys_create_object
 }}
 
@@ -172,10 +180,11 @@ impl Y {
 }
 
 fn create_object(
+  canvas_ui_id: Uint,
   path: String, layer: Uint,
   x: Int, y: Int, w: Int, h: Int, alpha: Int, theta: Int,
 ) -> Uint {
-  sys_create_object(path, layer, x, y, w, h, alpha, theta)
+  sys_create_object(canvas_ui_id, path, layer, x, y, w, h, alpha, theta)
 }
 
 // `after` ミリ秒後にオブジェクトを消す。
