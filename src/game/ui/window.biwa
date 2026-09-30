@@ -58,3 +58,13 @@ impl Window {
     id
   }
 }
+
+// ランタイムが `app()` の返した `Window` を表示するための入口。
+//
+// ホストは Biwa のメソッドを直接呼べないので、`Window::show` をこの
+// トップレベル関数で包んで host export する (`GameWindow::new` の
+// `__biwa_std_game_window_new` と同じ理由)。返り値は root の ui_id。
+[[host_export="__biwa_std_window_show"]]
+fn window_show_for_host(window: Window) -> Uint {
+  window.show()
+}

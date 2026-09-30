@@ -401,6 +401,11 @@ impl UiElement {
 // `pub import <element>::<Element>;` のような形で公開する見込み。
 
 // ウィンドウ。UI の root となる Element。子は Page のみ持てる。
+//
+// ランタイムは起動時に playable package の `fn app() -> Window` を呼び、
+// 返った Window を host export `__biwa_std_window_show` で表示する
+// (コンパイラが lang item `ui_window` を使って `app` のシグニチャを検査している)。
+[[lang="ui_window"]]
 struct Window {
   pages: Vec[Page],
   id: Option[String],
