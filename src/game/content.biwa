@@ -11,6 +11,7 @@ import package::game::color::Color;
 import package::game::config::Config;
 import package::game::font::TextWeight;
 import package::game::ui::Size;
+import package::game::ui::GameMessageArea;
 import package::game::base_engine::int_to_string;
 import package::game::base_engine::float_to_string;
 import package::game::Game;
@@ -126,7 +127,7 @@ fn content_push[C: Into[Content], T, U](game: Game[T, U], content: C) {
   let c: Content = content.into();
   match c {
     Content::Text(text) => {
-      game.window.message_window.push_text(
+      message_area_of(game).push_text(
         text.text,
         resolved_speed(game.config, text.speed),
         resolved_size(game.config, text.size),
@@ -139,7 +140,7 @@ fn content_push[C: Into[Content], T, U](game: Game[T, U], content: C) {
 
 [[lang="content_flush_and_wait"]]
 fn content_flush_and_wait[T, U](game: Game[T, U]) {
-  game.window.message_window.flush();
+  message_area_of(game).flush();
   // 将来的に各種イベントを受け取る機構が検討されている。
   // 共通のイベントハンドラをエンジン側が呼び、種類ごとに振り分ける形などが考えられる。
   // game.window.wait_event(Event::MouseClickLeft);
@@ -147,7 +148,16 @@ fn content_flush_and_wait[T, U](game: Game[T, U]) {
   // **クリアするのはここである。** エンジンは自分の判断で消さない。
   // 「待つが消さない」API を将来足すときに、
   // 変更がコンパイラと std に閉じるようにするための切り分けである。
-  game.window.message_window.clear();
+  message_area_of(game).clear();
+}
+
+// Content API の出力先。
+//
+// `GameWindow` に MessageArea が無い (ランタイムが渡さなかった) のに
+// テキストを出そうとするのはゲーム側の構成の誤りなので、黙って捨てずに止める
+// (`Option::unwrap` → `abort`。wasm では trap する)。
+fn message_area_of[T, U](game: Game[T, U]) -> GameMessageArea {
+  game.window.message_area.unwrap()
 }
 
 // ---- 設定の解決 ----

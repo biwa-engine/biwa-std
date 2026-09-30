@@ -2,6 +2,8 @@
 
 import package::string::String;
 import package::option::Option;
+import package::option::Option::Some;
+import package::option::Option::None;
 import package::collections::Vec;
 import package::game::font::TextWeight;
 import package::game::color::Color;
@@ -14,27 +16,44 @@ import package::game::base_engine::sys_ui_set_property_with_string;
 import package::game::base_engine::sys_ui_push_child;
 import package::game::base_engine::wait;
 
-// --- ゲームの「ウィンドウ」(canvas + message window の入れ物) --------------
+// --- ゲームの出力先の束 (canvas + message area) -------------------------------
 //
 // これは `docs/ui-api.md` の UI Element `Window` とは別物である。
-// こちらは `Game` が内部的に持つ、canvas と Message Window への参照の束で、
-// scene から `game.window.wait()` のように使われる既存の仕組み。
+// こちらは `Game` が内部的に持つ、出力先 (Canvas / MessageArea の UI Element) の
+// ui_id の束で、scene からは `game.window.wait()` のように使われる。
 // UI Element の `Window` (root element) は本ファイル下部の「UI Element」節にある。
+//
+// `GameWindow` はランタイムが組み立てて `fn on_new_game(window: GameWindow)` に渡す
+// (コンパイラが lang item `game_window` を使ってそのシグニチャを検査している)。
+// ランタイムは Biwa の値を直接は作れないので、下の host export
+// `__biwa_std_game_window_new` を呼んで作る。
 
+[[lang="game_window"]]
 struct GameWindow {
-  canvas: Canvas,
-  message_window: MessageWindow,
+  // Canvas API の出力先。無ければ Canvas API は使えない。
+  canvas: Option[GameCanvas],
+  // Content API の出力先。無ければ Content API は使えない。
+  message_area: Option[GameMessageArea],
 }
 
 impl GameWindow {
-  fn new() -> Self {
+  // 引数は出力先の UI Element (`Canvas` / `MessageArea`) の ui_id。
+  fn new(canvas: Option[Uint], message_area: Option[Uint]) -> Self {
     Self {
-      canvas = Canvas{},
-      message_window = MessageWindow{},
+      canvas = match canvas {
+        Some(id) => Some(GameCanvas { ui_id = id }),
+        None => None,
+      },
+      message_area = match message_area {
+        Some(id) => Some(GameMessageArea { ui_id = id }),
+        None => None,
+      },
     }
   }
 
   // クリックが来るまでシーンを止める。
+  //
+  // クリックはどの出力先にも属さないので ui_id を取らない。
   fn wait(self) {
     wait();
   }
@@ -43,43 +62,73 @@ impl GameWindow {
   // fn height(self) -> Uint;
 }
 
-struct Canvas {}
+// ランタイムが `GameWindow` を組み立てるための入口。
+//
+// ホスト (JS) は Biwa の `Option` を組み立てられない (wasm では WasmGC の値) ので、
+// 素の ui_id を受け取り、**0 を「無し」**として扱う。
+// ui_id は 1 から振られるので 0 はどの Element とも重ならない。
+//
+// `GameWindow::new` は関連関数なので host export の付与対象 (トップレベルの `fn`) に入らず、
+// この薄いラッパーを置いている。
+[[host_export="__biwa_std_game_window_new"]]
+fn game_window_new_for_host(canvas_id: Uint, message_area_id: Uint) -> GameWindow {
+  GameWindow::new(ui_id_or_none(canvas_id), ui_id_or_none(message_area_id))
+}
 
-impl Canvas {
+// ホストから来た ui_id の 0 を「無し」に読み替える。
+fn ui_id_or_none(id: Uint) -> Option[Uint] {
+  if id == 0 {
+    None
+  } else {
+    Some(id)
+  }
+}
+
+// Canvas API の出力先。UI Element `Canvas` の ui_id を持つだけの薄い struct。
+struct GameCanvas {
+  ui_id: Uint,
+}
+
+impl GameCanvas {
   // fn create_image(self, image: Image, x: Int, y: Int, width: Option[Uint], height: Option[Uint]);
 }
 
-struct MessageWindow {}
+// Content API の出力先。UI Element `MessageArea` の ui_id を持つだけの薄い struct。
+//
+// syscall には出力先としてこの ui_id を第一引数で渡す。
+struct GameMessageArea {
+  ui_id: Uint,
+}
 
-impl MessageWindow {
+impl GameMessageArea {
   // テキストを 1 つ積む。まだ描画されない。
   //
   // 引数はすべて**解決済みの絶対値**である。設定を読んで
   // ここに渡す形にするのは `std::game::content` の仕事で、
-  // Window API は設定を知らない。
+  // ここは設定を知らない。
   //
   // `Size` は enum なので、syscall には (単位, 値) の 2 つに割って渡す。
   fn push_text(self, text: String, speed: Float, size: Size, weight: TextWeight, color: Color) {
     match size {
       Size::Vw(v) => {
         sys_content_push_text(
-          text, speed, 0, v, weight.weight, color.r, color.g, color.b, color.a);
+          self.ui_id, text, speed, 0, v, weight.weight, color.r, color.g, color.b, color.a);
       }
       Size::Vh(v) => {
         sys_content_push_text(
-          text, speed, 1, v, weight.weight, color.r, color.g, color.b, color.a);
+          self.ui_id, text, speed, 1, v, weight.weight, color.r, color.g, color.b, color.a);
       }
     }
   }
 
   // 積まれたものをまとめて出し始める。
   fn flush(self) {
-    sys_content_flush();
+    sys_content_flush(self.ui_id);
   }
 
   // 枠を空にする。呼ぶ時機を決めるのは std であってエンジンではない。
   fn clear(self) {
-    sys_content_clear();
+    sys_content_clear(self.ui_id);
   }
 
   // fn set_talker_name(self, name: String);
@@ -139,7 +188,10 @@ fn element_kind_vertical() -> Uint { 5 }
 fn element_kind_horizontal_grid() -> Uint { 6 }
 // std 側の型名は `UiImage` (`std::game::image::Image` との衝突を避けるため)。
 fn element_kind_image() -> Uint { 7 }
-// 8 以降は Canvas / MessageArea (Step3) 用に空けてある。
+// ゲームの出力先になる Element。`GameWindow` (`GameCanvas` / `GameMessageArea`) は
+// これらの ui_id を持ち、Canvas API / Content API はその ui_id で出力先を指定する。
+fn element_kind_canvas() -> Uint { 8 }
+fn element_kind_message_area() -> Uint { 9 }
 // Button は funcref 前提のため割り当てない (`docs/ui-api.md`)。
 
 // property の kind 番号。engine の `api/ui.ts` の `PropertyKind` と一致させる。
@@ -306,6 +358,8 @@ enum UiElement {
   Vertical(Vertical),
   HorizontalGrid(HorizontalGrid),
   Image(UiImage),
+  Canvas(Canvas),
+  MessageArea(MessageArea),
 }
 
 impl UiElement {
@@ -319,6 +373,8 @@ impl UiElement {
       UiElement::Vertical(el) => el.materialize(),
       UiElement::HorizontalGrid(el) => el.materialize(),
       UiElement::Image(el) => el.materialize(),
+      UiElement::Canvas(el) => el.materialize(),
+      UiElement::MessageArea(el) => el.materialize(),
     }
   }
 }
@@ -458,4 +514,43 @@ struct UiImage {
   padding_right: Option[UiSize],
   padding_top: Option[UiSize],
   padding_bottom: Option[UiSize],
+}
+
+// Canvas API の出力先になる Element。子は持てない。
+//
+// ゲーム進行中の画像などはここに描かれる。`GameCanvas` がこの ui_id を持つ。
+// Element として切り出しておくのは、複数キャンバスやミラーリングに備えるため
+// (`docs/ui-api.md`)。`Canvas` の名前はもともと `GameCanvas` が使っていたが、
+// UI Element の名前に譲った (§14)。
+struct Canvas {
+  id: Option[String],
+  width: Option[UiSize],
+  height: Option[UiSize],
+  margin_left: Option[UiSize],
+  margin_right: Option[UiSize],
+  margin_top: Option[UiSize],
+  margin_bottom: Option[UiSize],
+  padding_left: Option[UiSize],
+  padding_right: Option[UiSize],
+  padding_top: Option[UiSize],
+  padding_bottom: Option[UiSize],
+  background: Option[Background],
+}
+
+// Content API (ノベル表現) の出力先になる Element。子は持てない。
+//
+// scene の生テキストや `$` の埋め込み式はここに出る。`GameMessageArea` がこの ui_id を持つ。
+struct MessageArea {
+  id: Option[String],
+  width: Option[UiSize],
+  height: Option[UiSize],
+  margin_left: Option[UiSize],
+  margin_right: Option[UiSize],
+  margin_top: Option[UiSize],
+  margin_bottom: Option[UiSize],
+  padding_left: Option[UiSize],
+  padding_right: Option[UiSize],
+  padding_top: Option[UiSize],
+  padding_bottom: Option[UiSize],
+  background: Option[Background],
 }

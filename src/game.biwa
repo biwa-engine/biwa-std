@@ -29,12 +29,14 @@ struct Game[C, S] {
 }
 
 impl[C, S] Game[C, S] {
-  fn new(name: String, characters: C, states: S, config: Config) -> Self {
+  // `window` (出力先の束) はランタイムが組み立てて `on_new_game(window)` に渡したもの。
+  // ゲーム側はそれをそのままここに渡す。
+  fn new(window: GameWindow, name: String, characters: C, states: S, config: Config) -> Self {
     Self {
       name = name,
       characters = characters,
       states = states,
-      window = GameWindow::new(),
+      window = window,
       config = config,
     }
   }
