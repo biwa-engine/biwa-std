@@ -192,6 +192,8 @@ fn element_kind_image() -> Uint { 7 }
 // これらの ui_id を持ち、Canvas API / Content API はその ui_id で出力先を指定する。
 fn element_kind_canvas() -> Uint { 8 }
 fn element_kind_message_area() -> Uint { 9 }
+// 子を重ねる Element。push された順に上に積み上がる。
+fn element_kind_layers() -> Uint { 10 }
 // Button は funcref 前提のため割り当てない (`docs/ui-api.md`)。
 
 // property の kind 番号。engine の `api/ui.ts` の `PropertyKind` と一致させる。
@@ -372,6 +374,7 @@ enum UiElement {
   Image(UiImage),
   Canvas(Canvas),
   MessageArea(MessageArea),
+  Layers(Layers),
 }
 
 impl UiElement {
@@ -387,6 +390,7 @@ impl UiElement {
       UiElement::Image(el) => el.materialize(),
       UiElement::Canvas(el) => el.materialize(),
       UiElement::MessageArea(el) => el.materialize(),
+      UiElement::Layers(el) => el.materialize(),
     }
   }
 }
@@ -576,4 +580,15 @@ struct MessageArea {
   padding_top: Option[UiSize],
   padding_bottom: Option[UiSize],
   background: Option[Background],
+}
+
+// 子を重ねる Element (`docs/ui-api.md` の `Layers`)。
+//
+// 子はそれぞれ Layers の親の中にいるのと同じように配置され、x / y 方向には
+// 互いに干渉しない。前後は push された順で決まり、**後から push したものほど上**になる
+// (`Layers::new(Vec::of(下)).push(上)`)。背景の Canvas の上にメッセージ枠を重ねる、
+// といった用途に使う。
+struct Layers {
+  children: Vec[UiElement],
+  id: Option[String],
 }

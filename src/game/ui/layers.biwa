@@ -1,0 +1,50 @@
+// `Layers` (子を重ねる Element) の impl。
+//
+// struct 定義は `game/ui.biwa` にある。子は `push_children` が順に積むので、
+// 後から push したものほど上のレイヤーになる (エンジンが push された順に z を積み上げる)。
+
+import package::string::String;
+import package::option::Option;
+import package::option::Option::Some;
+import package::option::Option::None;
+import package::convert::Into;
+import package::collections::Vec;
+import package::game::base_engine::sys_ui_create;
+import package::game::ui::UiElement;
+import package::game::ui::Layers;
+import package::game::ui::element_kind_layers;
+import package::game::ui::apply_id;
+import package::game::ui::push_children;
+
+impl Layers {
+  // 先頭が一番下のレイヤーになる。
+  fn new(children: Vec[UiElement]) -> Self {
+    Self { children = children, id = None }
+  }
+
+  // 一番上にレイヤーを 1 枚足す。
+  fn push(self, child: UiElement) -> Self {
+    self.children.push(child);
+    self
+  }
+
+  // すべての Element が持てる任意の識別子。
+  fn id(self, value: String) -> Self {
+    self.id = Some(value);
+    self
+  }
+
+  // 木を辿って syscall を発行する。子は下のレイヤーから順に積む。
+  fn materialize(self) -> Uint {
+    let id = sys_ui_create(element_kind_layers());
+    apply_id(id, self.id);
+    push_children(id, self.children);
+    id
+  }
+}
+
+impl Layers: Into[UiElement] {
+  fn into(self) -> UiElement {
+    UiElement::Layers(self)
+  }
+}
