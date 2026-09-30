@@ -18,6 +18,7 @@ import package::game::ui::HorizontalGrid;
 import package::game::ui::element_kind_horizontal_grid;
 import package::game::ui::property_kind_column;
 import package::game::ui::apply_layout_properties;
+import package::game::ui::apply_id;
 import package::game::ui::push_children;
 
 impl HorizontalGrid {
@@ -25,6 +26,7 @@ impl HorizontalGrid {
     Self {
       children = children,
       column = column,
+      id = None,
       width = None,
       height = None,
       margin_left = None,
@@ -46,6 +48,12 @@ impl HorizontalGrid {
 
   fn column(self, value: Uint) -> Self {
     self.column = value;
+    self
+  }
+
+  // すべての Element が持てる任意の識別子。
+  fn id(self, value: String) -> Self {
+    self.id = Some(value);
     self
   }
 
@@ -113,6 +121,7 @@ impl HorizontalGrid {
   // 木を辿って syscall を発行する。
   fn materialize(self) -> Uint {
     let id = sys_ui_create(element_kind_horizontal_grid());
+    apply_id(id, self.id);
     apply_layout_properties(
       id, self.width, self.height,
       self.margin_left, self.margin_right, self.margin_top, self.margin_bottom,

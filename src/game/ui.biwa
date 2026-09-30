@@ -164,6 +164,8 @@ fn property_kind_text() -> Uint { 102 }
 fn property_kind_text_font() -> Uint { 103 }
 fn property_kind_background_image() -> Uint { 104 }
 fn property_kind_image() -> Uint { 105 }
+// すべての Element が持てる任意の識別子。
+fn property_kind_id() -> Uint { 106 }
 
 // width / height / margin / padding が取れる単位。engine の `Unit` と一致させる。
 fn ui_unit_vw() -> Uint { 0 }
@@ -216,6 +218,14 @@ fn apply_background(id: Uint, background: Option[Background]) {
         sys_ui_set_property_with_string(id, property_kind_background_image(), 0, 0, 0.0, path);
       }
     }
+  }
+}
+
+// すべての Element に共通する `id` property を発行する。未設定 (`None`) なら何もしない。
+// エンジン側はこの文字列から ui_id を逆引きできる (Page の `canvas`/`message_area` 等で使う)。
+fn apply_id(id: Uint, name: Option[String]) {
+  if name.is_some() {
+    sys_ui_set_property_with_string(id, property_kind_id(), 0, 0, 0.0, name.unwrap());
   }
 }
 
@@ -325,6 +335,7 @@ impl UiElement {
 // ウィンドウ。UI の root となる Element。子は Page のみ持てる。
 struct Window {
   pages: Vec[Page],
+  id: Option[String],
 }
 
 // ページ。Window の子として、page_id で区別され、Link で遷移できる。
@@ -332,11 +343,13 @@ struct Page {
   page_id: String,
   children: Vec[UiElement],
   background: Option[Background],
+  id: Option[String],
 }
 
 // 領域を区切る最も基本的な Element。子を 1 つだけ持つ。
 struct Box {
   child: UiElement,
+  id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
   margin_left: Option[UiSize],
@@ -354,6 +367,7 @@ struct Box {
 // 子は持てない。テキストを持てる唯一の Element (Step2)。
 struct Link {
   on_click_link: String,
+  id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
   margin_left: Option[UiSize],
@@ -375,6 +389,7 @@ struct Link {
 // 子を水平に並べる Layout Element。
 struct Horizontal {
   children: Vec[UiElement],
+  id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
   margin_left: Option[UiSize],
@@ -391,6 +406,7 @@ struct Horizontal {
 // 子を垂直に並べる Layout Element。
 struct Vertical {
   children: Vec[UiElement],
+  id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
   margin_left: Option[UiSize],
@@ -407,6 +423,7 @@ struct Vertical {
 // `column` 本の列に並べ、折り返す Layout Element。
 struct HorizontalGrid {
   children: Vec[UiElement],
+  id: Option[String],
   column: Uint,
   width: Option[UiSize],
   height: Option[UiSize],
@@ -430,6 +447,7 @@ struct HorizontalGrid {
 // 影響しない、std 側だけの命名判断である。
 struct UiImage {
   path: String,
+  id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
   margin_left: Option[UiSize],

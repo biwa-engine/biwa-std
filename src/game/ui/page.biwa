@@ -21,14 +21,21 @@ import package::game::ui::element_kind_page;
 import package::game::ui::property_kind_page_id;
 import package::game::ui::push_children;
 import package::game::ui::apply_background;
+import package::game::ui::apply_id;
 
 impl Page {
   fn new(page_id: String, children: Vec[UiElement]) -> Self {
-    Self { page_id = page_id, children = children, background = None }
+    Self { page_id = page_id, children = children, background = None, id = None }
   }
 
   fn push(self, child: UiElement) -> Self {
     self.children.push(child);
+    self
+  }
+
+  // すべての Element が持てる任意の識別子。
+  fn id(self, value: String) -> Self {
+    self.id = Some(value);
     self
   }
 
@@ -46,6 +53,7 @@ impl Page {
   // 木を辿って syscall を発行し、`window_id` の子として積む。
   fn materialize_into(self, window_id: Uint) {
     let id = sys_ui_create(element_kind_page());
+    apply_id(id, self.id);
     sys_ui_set_property_with_string(id, property_kind_page_id(), 0, 0, 0.0, self.page_id);
     apply_background(id, self.background);
     push_children(id, self.children);

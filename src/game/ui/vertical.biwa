@@ -16,12 +16,14 @@ import package::game::ui::Background;
 import package::game::ui::Vertical;
 import package::game::ui::element_kind_vertical;
 import package::game::ui::apply_layout_properties;
+import package::game::ui::apply_id;
 import package::game::ui::push_children;
 
 impl Vertical {
   fn new(children: Vec[UiElement]) -> Self {
     Self {
       children = children,
+      id = None,
       width = None,
       height = None,
       margin_left = None,
@@ -38,6 +40,12 @@ impl Vertical {
 
   fn push(self, child: UiElement) -> Self {
     self.children.push(child);
+    self
+  }
+
+  // すべての Element が持てる任意の識別子。
+  fn id(self, value: String) -> Self {
+    self.id = Some(value);
     self
   }
 
@@ -105,6 +113,7 @@ impl Vertical {
   // 木を辿って syscall を発行する。
   fn materialize(self) -> Uint {
     let id = sys_ui_create(element_kind_vertical());
+    apply_id(id, self.id);
     apply_layout_properties(
       id, self.width, self.height,
       self.margin_left, self.margin_right, self.margin_top, self.margin_bottom,

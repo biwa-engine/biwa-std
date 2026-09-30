@@ -19,6 +19,7 @@ import package::game::ui::Link;
 import package::game::ui::element_kind_link;
 import package::game::ui::property_kind_on_click_link;
 import package::game::ui::apply_layout_properties;
+import package::game::ui::apply_id;
 import package::game::ui::apply_text_properties;
 
 impl Link {
@@ -26,6 +27,7 @@ impl Link {
   fn new(on_click_link: String) -> Self {
     Self {
       on_click_link = on_click_link,
+      id = None,
       width = None,
       height = None,
       margin_left = None,
@@ -43,6 +45,12 @@ impl Link {
       text_weight = None,
       text_color = None,
     }
+  }
+
+  // すべての Element が持てる任意の識別子。
+  fn id(self, value: String) -> Self {
+    self.id = Some(value);
+    self
   }
 
   fn width(self, value: UiSize) -> Self {
@@ -137,6 +145,7 @@ impl Link {
   // 木を辿って syscall を発行する。子を持てないため push_child は発行しない。
   fn materialize(self) -> Uint {
     let id = sys_ui_create(element_kind_link());
+    apply_id(id, self.id);
     apply_layout_properties(
       id, self.width, self.height,
       self.margin_left, self.margin_right, self.margin_top, self.margin_bottom,
