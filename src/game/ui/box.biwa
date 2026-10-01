@@ -1,4 +1,4 @@
-// `Box` (子を 1 つだけ持つ最も基本的な Element) の impl。
+// `Box` (子を 1 つまで持てる最も基本的な Element) の impl。
 //
 // struct 定義は `game/ui.biwa` にある。ビルダーメソッドは生成中・保持中の
 // 型安全性のために `Box` という具体型に直接生やす。`UiElement` へは
@@ -18,12 +18,14 @@ import package::game::ui::Background;
 import package::game::ui::Box;
 import package::game::ui::element_kind_box;
 import package::game::ui::apply_layout_properties;
+import package::game::ui::apply_text_properties;
 import package::game::ui::apply_id;
 
 impl Box {
-  fn new(child: UiElement) -> Self {
+  // 子もテキストも持たない Box。`child` / `text` で後から足す。
+  fn new() -> Self {
     Self {
-      child = child,
+      child = None,
       id = None,
       width = None,
       height = None,
@@ -36,7 +38,18 @@ impl Box {
       padding_top = None,
       padding_bottom = None,
       background = None,
+      text = None,
+      text_font = None,
+      text_size = None,
+      text_weight = None,
+      text_color = None,
     }
+  }
+
+  // 子を設定する。Box が持てる子は 1 つまでなので、呼び直すと置き換わる。
+  fn child(self, value: UiElement) -> Self {
+    self.child = Some(value);
+    self
   }
 
   // すべての Element が持てる任意の識別子。
@@ -106,6 +119,34 @@ impl Box {
     self
   }
 
+  // 表示する文字列。子と両方持つときは子より前に並ぶ。
+  fn text(self, value: String) -> Self {
+    self.text = Some(value);
+    self
+  }
+
+  // CSS の font-family としてそのまま使うフォント名。
+  fn text_font(self, value: String) -> Self {
+    self.text_font = Some(value);
+    self
+  }
+
+  fn text_size(self, value: UiSize) -> Self {
+    self.text_size = Some(value);
+    self
+  }
+
+  // 100〜900。
+  fn text_weight(self, value: Uint) -> Self {
+    self.text_weight = Some(value);
+    self
+  }
+
+  fn text_color(self, value: Color) -> Self {
+    self.text_color = Some(value);
+    self
+  }
+
   // 木を辿って syscall を発行する。enum の `UiElement::materialize` から
   // 分岐した先である。
   fn materialize(self) -> Uint {
@@ -117,8 +158,11 @@ impl Box {
       self.padding_left, self.padding_right, self.padding_top, self.padding_bottom,
       self.background,
     );
-    let child_id = self.child.materialize();
-    sys_ui_push_child(id, child_id);
+    apply_text_properties(id, self.text, self.text_font, self.text_size, self.text_weight, self.text_color);
+    if self.child.is_some() {
+      let child_id = self.child.unwrap().materialize();
+      sys_ui_push_child(id, child_id);
+    }
     id
   }
 }
