@@ -135,11 +135,6 @@ impl GameMessageArea {
   // fn set_talker_image(self, image: Image);
 }
 
-struct Position {
-  x: Int,
-  y: Int,
-}
-
 enum Size {
   // All of these `Float` value must be positive.
   Vw(Float), // 100.0 means 100 % of viewport width.

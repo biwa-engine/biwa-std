@@ -1,3 +1,5 @@
+import package::convert::Into;
+
 struct Color {
   // 現在のBiwaにはByte型がないのでUintで表現しているが、
   // いずれも 0 ~ 255 の値に丸められる
@@ -5,6 +7,33 @@ struct Color {
   g: Uint,
   b: Uint,
   a: Uint,
+}
+
+// 0 <= value <= 255
+struct Alpha {
+  value: Uint,
+}
+
+impl Alpha {
+  fn alpha(value: Uint) -> Alpha { Alpha { value = value } }
+
+  fn opaque() -> Alpha { Alpha { value = 255 } }
+
+  fn is_opaque(self) -> Bool { self.value >= 255 }
+
+  fn add(self, rhs: Self) -> Self {
+    Self { value = self.value + rhs.value }
+  }
+
+  fn sub(self, rhs: Self) -> Self {
+    Self { value = self.value - rhs.value }
+  }
+}
+
+impl Alpha: Into[Uint] {
+  fn into(self) -> Uint {
+    self.value
+  }
 }
 
 // Biwa std color name derived from CSS named color.

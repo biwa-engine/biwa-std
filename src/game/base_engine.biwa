@@ -9,6 +9,9 @@
 // - 中断しない syscall (画像を出す、名前を変える) は普通の関数呼び出しでよい。
 //   エンジンの API をそのまま呼び、積んで即座に返る。
 //
+// エンジンとの ABI は可能な限りこのモジュールに隠蔽し、
+// std の他のモジュールでは抽象化された状態で扱えるようにする
+
 // `@biwa/engine/*` は生成物の配置場所に依存しないための論理パスで、
 // Biwa CLI が用意する Vite の alias / tsconfig の paths によって
 // 実際のエンジン実装 (`.biwa_runtime/src/engine/...`) へ解決される。
@@ -55,12 +58,13 @@
   (import "biwa:engine" "sys_content_clear" (func $sys_content_clear (param i32)))
   (import "biwa:engine" "sys_wait" (func $sys_wait))
   ;; Canvas API。第一引数は出力先の Canvas の ui_id。
+  ;; 座標・大きさ・alpha・theta は f32 (座標と大きさは canvas の範囲が -50.0..50.0 の単位)。
   (import "biwa:engine" "sys_create_object"
     (func $sys_create_object
-      (param i32 externref i32 i32 i32 i32 i32 i32 i32) (result i32)))
+      (param i32 externref i32 f32 f32 f32 f32 f32 f32) (result i32)))
   (import "biwa:engine" "sys_delete_object" (func $sys_delete_object (param i32 i32)))
   (import "biwa:engine" "sys_add_transition"
-    (func $sys_add_transition (param i32 i32 i32 i32 i32 i32)))
+    (func $sys_add_transition (param i32 i32 i32 f32 i32 i32)))
   (import "biwa:engine" "sys_start_transitions" (func $sys_start_transitions (param i32)))
   (import "biwa:engine" "sys_await_transitions" (func $sys_await_transitions))
   (import "biwa:engine" "sys_sleep" (func $sys_sleep (param i32)))
@@ -88,8 +92,21 @@
   (import "biwa:engine" "sys_ui_push_child" (func $sys_ui_push_child (param i32 i32)))
 }}
 
+import package::convert::Into;
 import package::string::String;
-import package::game::ui::Size;
+import package::game::canvas::Cx;
+import package::game::canvas::Cy;
+import package::game::canvas::Cw;
+import package::game::canvas::Ch;
+import package::game::canvas::CanvasObjectParam;
+import package::game::canvas::CanvasObjectTransition;
+import package::game::canvas::CanvasObjectXTransition;
+import package::game::canvas::CanvasObjectYTransition;
+import package::game::canvas::CanvasObjectWTransition;
+import package::game::canvas::CanvasObjectHTransition;
+import package::game::canvas::CanvasObjectAlphaTransition;
+import package::game::canvas::CanvasObjectThetaTransition;
+import package::time::Duration;
 
 // syscall の記述子。中身はエンジンとの規約であり、Biwa 側からは不透明。
 [[lang="syscall"]]
@@ -113,6 +130,8 @@ type Syscall = {{
 // --- canvas オブジェクト ---------------------------------------------------
 //
 // 座標は canvas の中央が原点で、x は右が正、y は**上が正**である。
+// 座標と大きさの単位は canvas の範囲が -50.0 から 50.0 になるもので
+// (`std::game::canvas`)、syscall には f32 で渡す。alpha (0-255) と theta (度) も f32 で渡す。
 // 位置と回転はどちらも画像の中心を基準にする。
 // パラメータの番号 (param) と遷移の種類 (kind) はエンジンとの取り決めで、
 // 一覧は engine の `src/engine/api/transition.ts` にある。
@@ -125,8 +144,8 @@ type Syscall = {{
 // 座標の原点はその Canvas の中央である。以降の遷移・削除はオブジェクトの id で指す。
 //
 // `path` はパッケージの `assets/` を基準とした相対パスである。
-// `w` / `h` が負なら「指定しない」で、画像の元のサイズから決まる。
-// 片方だけ正ならアスペクトを保つ。
+// `w` / `h` が負なら「指定しない」。片方だけ正なら、画像の縦横比を保つように
+// (canvas の縦横比も考えて) エンジンがもう片方を決める。両方負なら画像の元の大きさ (px)。
 //
 // 読み込みは非同期だが、この呼び出しは待たない。
 // 読み込みに失敗しても id は返る (ゲーム側にできることが無いため)。
@@ -134,7 +153,7 @@ type Syscall = {{
 fn sys_create_object(
   canvas_ui_id: Uint,
   path: String, layer: Uint,
-  x: Int, y: Int, w: Int, h: Int, alpha: Int, theta: Int,
+  x: Float, y: Float, w: Float, h: Float, alpha: Float, theta: Float,
 ) -> Uint {{
   const id = allocObjectId();
   createObject(id, canvas_ui_id, path, layer, x, y, w, h, alpha, theta);
@@ -145,7 +164,7 @@ fn sys_create_object(
 fn sys_create_object(
   canvas_ui_id: Uint,
   path: String, layer: Uint,
-  x: Int, y: Int, w: Int, h: Int, alpha: Int, theta: Int,
+  x: Float, y: Float, w: Float, h: Float, alpha: Float, theta: Float,
 ) -> Uint {{
   local.get 0
   local.get 1
@@ -159,32 +178,12 @@ fn sys_create_object(
   call $sys_create_object
 }}
 
-struct X {
-  x: Size,
-}
-
-impl X {
-  fn vw(vw: Float) -> Self {
-    Self { x = Size::Vw(vw) }
-  }
-}
-
-struct Y {
-  y: Size,
-}
-
-impl Y {
-  fn vh(vh: Float) -> Self {
-    Self { y = Size::Vh(vh) }
-  }
-}
-
 fn create_object(
   canvas_ui_id: Uint,
   path: String, layer: Uint,
-  x: Int, y: Int, w: Int, h: Int, alpha: Int, theta: Int,
+  x: Cx, y: Cy, w: Cw, h: Ch, alpha: Float, theta: Float,
 ) -> Uint {
-  sys_create_object(canvas_ui_id, path, layer, x, y, w, h, alpha, theta)
+  sys_create_object(canvas_ui_id, path, layer, x.value, y.value, w.value, h.value, alpha, theta)
 }
 
 // `after` ミリ秒後にオブジェクトを消す。
@@ -207,13 +206,16 @@ fn delete_object(id: Uint, after: Uint) {{
 //
 // `value` は一度限りの遷移では目標値、周期的な遷移では振幅。
 // `after` は発火からの遅れ、`duration` は遷移時間 (周期系では周期)。
+//
+// 値の単位はパラメータのもの (x / y / w / h は canvas の範囲が -50.0..50.0 の単位、
+// alpha は 0-255、theta は度)。パラメータを問わず f32 で渡す。
 [[native(arch="typescript")]]
-fn add_transition(id: Uint, param: Uint, kind: Uint, value: Int, after: Uint, duration: Uint) {{
+fn sys_add_transition(id: Uint, param: Uint, kind: Uint, value: Float, after: Uint, duration: Uint) {{
   addTransition(id, param, kind, value, after, duration);
 }}
 
 [[native(arch="wasm")]]
-fn add_transition(id: Uint, param: Uint, kind: Uint, value: Int, after: Uint, duration: Uint) {{
+fn sys_add_transition(id: Uint, param: Uint, kind: Uint, value: Float, after: Uint, duration: Uint) {{
   local.get 0
   local.get 1
   local.get 2
@@ -222,6 +224,126 @@ fn add_transition(id: Uint, param: Uint, kind: Uint, value: Int, after: Uint, du
   local.get 5
   call $sys_add_transition
 }}
+
+impl CanvasObjectParam {
+  fn as_raw(self) -> Uint {
+    match self {
+      CanvasObjectParam::X => 0, 
+      CanvasObjectParam::Y => 1, 
+      CanvasObjectParam::W => 2, 
+      CanvasObjectParam::H => 3, 
+      CanvasObjectParam::Alpha => 4,
+      CanvasObjectParam::Theta => 5,
+    }
+  }
+}
+
+// private helpers
+impl[V, D] CanvasObjectTransition[V, D] {
+  fn as_raw_kind(self) -> Uint {
+    match self {
+      CanvasObjectTransition::None => 0,
+      CanvasObjectTransition::Linear(_) => 1,
+      CanvasObjectTransition::EaseIn(_) => 2,
+      CanvasObjectTransition::EaseOut(_) => 3,
+      CanvasObjectTransition::EaseInOut(_) => 4,
+      CanvasObjectTransition::EaseOutIn(_) => 5,
+      CanvasObjectTransition::Sin(_) => 16,
+      CanvasObjectTransition::Triangle(_) => 17,
+      CanvasObjectTransition::Square(_) => 18,
+      CanvasObjectTransition::Saw(_) => 19,
+    }
+  }
+  
+  fn as_duration(self) -> Duration {
+    match self {
+      CanvasObjectTransition::None => Duration::ms(0),
+      CanvasObjectTransition::Linear(once) => once.duration,
+      CanvasObjectTransition::EaseIn(once) => once.duration,
+      CanvasObjectTransition::EaseOut(once) => once.duration,
+      CanvasObjectTransition::EaseInOut(once) => once.duration,
+      CanvasObjectTransition::EaseOutIn(once) => once.duration,
+      CanvasObjectTransition::Sin(lo) => lo.period,
+      CanvasObjectTransition::Triangle(lo) => lo.period,
+      CanvasObjectTransition::Square(lo) => lo.period,
+      CanvasObjectTransition::Saw(lo) => lo.period,
+    }
+  }
+
+  fn stop_loop_if_needed(self, id: Uint, param: CanvasObjectParam, after: Duration) {
+    let opt_continuity = match self {
+      CanvasObjectTransition::Sin(lo) => Some(lo.continuity),
+      CanvasObjectTransition::Triangle(lo) => Some(lo.continuity),
+      CanvasObjectTransition::Square(lo) => Some(lo.continuity),
+      CanvasObjectTransition::Saw(lo) => Some(lo.continuity),
+      _ => None,
+    };
+
+    match opt_continuity {
+      Some(continuity) => {
+        match continuity {
+          CanvasObjectTransitionContinuity::Infinite => {},
+          CanvasObjectTransitionContinuity::For(until) => {
+            sys_add_transition(
+              id,
+              param.as_raw(),
+              CanvasObjectTransition::None.as_raw_kind(),
+              0.0,
+              after.add(until).as_ms(),
+              0);
+          },
+        }
+      },
+      None => {},
+    }
+  }
+}
+
+impl[V: Into[Float], D] CanvasObjectTransition[V, D] {
+  fn as_fval(self) -> Float {
+    match self {
+      CanvasObjectTransition::None => 0.0,
+      CanvasObjectTransition::Linear(once) => once.value.into(),
+      CanvasObjectTransition::EaseIn(once) => once.value.into(),
+      CanvasObjectTransition::EaseOut(once) => once.value.into(),
+      CanvasObjectTransition::EaseInOut(once) => once.value.into(),
+      CanvasObjectTransition::EaseOutIn(once) => once.value.into(),
+      CanvasObjectTransition::Sin(lo) => lo.value.into(),
+      CanvasObjectTransition::Triangle(lo) => lo.value.into(),
+      CanvasObjectTransition::Square(lo) => lo.value.into(),
+      CanvasObjectTransition::Saw(lo) => lo.value.into(),
+    }
+  }
+}
+
+impl[V: Into[Uint], D] CanvasObjectTransition[V, D] {
+  fn as_uval(self) -> Uint {
+    match self {
+      CanvasObjectTransition::None => 0.0,
+      CanvasObjectTransition::Linear(once) => once.value.into(),
+      CanvasObjectTransition::EaseIn(once) => once.value.into(),
+      CanvasObjectTransition::EaseOut(once) => once.value.into(),
+      CanvasObjectTransition::EaseInOut(once) => once.value.into(),
+      CanvasObjectTransition::EaseOutIn(once) => once.value.into(),
+      CanvasObjectTransition::Sin(lo) => lo.value.into(),
+      CanvasObjectTransition::Triangle(lo) => lo.value.into(),
+      CanvasObjectTransition::Square(lo) => lo.value.into(),
+      CanvasObjectTransition::Saw(lo) => lo.value.into(),
+    }
+  }
+}
+
+fn add_x_transition(id: Uint, traisition: CanvasObjectXTransition, after: Duration) {
+  sys_add_transition(
+    id,
+    CanvasObjectParam::X.as_raw(),
+    traisition.as_raw_kind(),
+    traisition.as_fval(),
+    after,
+    traisition.as_duration());
+    
+  traisition.stop_loop_if_needed(id, CanvasObjectParam::X, after);
+}
 
 // 積まれた遷移を発火する。オブジェクトを跨いで一斉に始まる。
 //
@@ -366,6 +488,18 @@ fn int_to_string(val: Int) -> String {{
 fn int_to_string(val: Int) -> String {{
   local.get 0
   call $sys_int_to_string
+}}
+
+// 整数を浮動小数にする。値の変換で、エンジンは呼ばない。
+[[native(arch="typescript")]]
+fn int_to_float(val: Int) -> Float {{
+  return val;
+}}
+
+[[native(arch="wasm")]]
+fn int_to_float(val: Int) -> Float {{
+  local.get 0
+  f32.convert_i32_s
 }}
 
 [[native(arch="typescript")]]
