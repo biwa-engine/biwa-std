@@ -1,0 +1,116 @@
+// `UiImage` (画像を表示する Element) の impl。
+//
+// struct 定義は `game/ui.biwa` にある。std 上の型名が `Image` ではなく
+// `UiImage` なのは、`std::game::image::Image` (canvas に置く画像) との
+// 名前の衝突を避けるためである (`game/ui.biwa` の `UiImage` のコメント参照)。
+
+import package::string::String;
+import package::option::Option;
+import package::option::Option::Some;
+import package::option::Option::None;
+import package::convert::Into;
+import package::game::base_engine::sys_ui_create;
+import package::game::base_engine::sys_ui_set_property_with_string;
+import package::game::ui::UiElement;
+import package::game::ui::UiSize;
+import package::game::ui::UiImage;
+import package::game::ui::element_kind_image;
+import package::game::ui::property_kind_image;
+import package::game::ui::apply_layout_properties;
+import package::game::ui::apply_id;
+
+impl UiImage {
+  // `path` はパッケージの `assets/` を基準とした相対パス。
+  fn new(path: String) -> Self {
+    Self {
+      path = path,
+      id = None,
+      width = None,
+      height = None,
+      margin_left = None,
+      margin_right = None,
+      margin_top = None,
+      margin_bottom = None,
+      padding_left = None,
+      padding_right = None,
+      padding_top = None,
+      padding_bottom = None,
+    }
+  }
+
+  // すべての Element が持てる任意の識別子。
+  fn id(self, value: String) -> Self {
+    self.id = Some(value);
+    self
+  }
+
+  fn width(self, value: UiSize) -> Self {
+    self.width = Some(value);
+    self
+  }
+
+  fn height(self, value: UiSize) -> Self {
+    self.height = Some(value);
+    self
+  }
+
+  fn margin_left(self, value: UiSize) -> Self {
+    self.margin_left = Some(value);
+    self
+  }
+
+  fn margin_right(self, value: UiSize) -> Self {
+    self.margin_right = Some(value);
+    self
+  }
+
+  fn margin_top(self, value: UiSize) -> Self {
+    self.margin_top = Some(value);
+    self
+  }
+
+  fn margin_bottom(self, value: UiSize) -> Self {
+    self.margin_bottom = Some(value);
+    self
+  }
+
+  fn padding_left(self, value: UiSize) -> Self {
+    self.padding_left = Some(value);
+    self
+  }
+
+  fn padding_right(self, value: UiSize) -> Self {
+    self.padding_right = Some(value);
+    self
+  }
+
+  fn padding_top(self, value: UiSize) -> Self {
+    self.padding_top = Some(value);
+    self
+  }
+
+  fn padding_bottom(self, value: UiSize) -> Self {
+    self.padding_bottom = Some(value);
+    self
+  }
+
+  // 木を辿って syscall を発行する。子を持てない。
+  fn materialize(self) -> Uint {
+    let id = sys_ui_create(element_kind_image());
+    apply_id(id, self.id);
+    apply_layout_properties(
+      id, self.width, self.height,
+      self.margin_left, self.margin_right, self.margin_top, self.margin_bottom,
+      self.padding_left, self.padding_right, self.padding_top, self.padding_bottom,
+      None,
+    );
+    sys_ui_set_property_with_string(id, property_kind_image(), 0, 0, 0.0, self.path);
+    id
+  }
+}
+
+impl UiImage: Into[UiElement] {
+  fn into(self) -> UiElement {
+    UiElement::Image(self)
+  }
+}

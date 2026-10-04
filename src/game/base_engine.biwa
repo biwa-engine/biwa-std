@@ -9,6 +9,9 @@
 // - 中断しない syscall (画像を出す、名前を変える) は普通の関数呼び出しでよい。
 //   エンジンの API をそのまま呼び、積んで即座に返る。
 //
+// エンジンとの ABI は可能な限りこのモジュールに隠蔽し、
+// std の他のモジュールでは抽象化された状態で扱えるようにする
+
 // `@biwa/engine/*` は生成物の配置場所に依存しないための論理パスで、
 // Biwa CLI が用意する Vite の alias / tsconfig の paths によって
 // 実際のエンジン実装 (`.biwa_runtime/src/engine/...`) へ解決される。
@@ -26,6 +29,13 @@
     flushContent,
     pushContentText,
   } from "@biwa/engine/api/message";
+  import {
+    allocUiId,
+    createUiElement,
+    pushUiChild,
+    setUiProperty,
+    setUiPropertyString,
+  } from "@biwa/engine/api/ui";
   import { Sys, type BiwaSyscall } from "@biwa/engine/vm/syscall";
 }}
 
@@ -40,18 +50,22 @@
 // したがって typescript 版と違い syscall の記述子を返さない。
 [[native(arch="wasm")]]
 {{
+  ;; Content API。第一引数は出力先の MessageArea の ui_id。
   (import "biwa:engine" "sys_content_push_text"
     (func $sys_content_push_text
-      (param externref f32 i32 f32 i32 i32 i32 i32 i32)))
-  (import "biwa:engine" "sys_content_flush" (func $sys_content_flush))
-  (import "biwa:engine" "sys_content_clear" (func $sys_content_clear))
+      (param i32 externref f32 i32 f32 i32 i32 i32 i32 i32)))
+  (import "biwa:engine" "sys_content_flush" (func $sys_content_flush (param i32)))
+  (import "biwa:engine" "sys_content_clear" (func $sys_content_clear (param i32)))
   (import "biwa:engine" "sys_wait" (func $sys_wait))
+  ;; Canvas API。第一引数は出力先の Canvas の ui_id。
+  ;; 座標・大きさ・theta は f32 (座標と大きさは canvas の範囲が -50.0..50.0 の単位)、alpha は i32。
   (import "biwa:engine" "sys_create_object"
     (func $sys_create_object
-      (param externref i32 i32 i32 i32 i32 i32 i32) (result i32)))
+      (param i32 externref i32 f32 f32 f32 f32 i32 f32) (result i32)))
   (import "biwa:engine" "sys_delete_object" (func $sys_delete_object (param i32 i32)))
+  ;; 値は val_i (i32) と val_f (f32) の 2 枠。パラメータごとに使う方が決まっていて、使わない方は 0。
   (import "biwa:engine" "sys_add_transition"
-    (func $sys_add_transition (param i32 i32 i32 i32 i32 i32)))
+    (func $sys_add_transition (param i32 i32 i32 i32 f32 i32 i32)))
   (import "biwa:engine" "sys_start_transitions" (func $sys_start_transitions (param i32)))
   (import "biwa:engine" "sys_await_transitions" (func $sys_await_transitions))
   (import "biwa:engine" "sys_sleep" (func $sys_sleep (param i32)))
@@ -69,10 +83,38 @@
     (func $sys_vec_get (param externref i32) (result anyref)))
   (import "biwa:engine" "sys_map_insert" (func $sys_map_insert (param externref anyref anyref)))
   (import "biwa:engine" "sys_map_get" (func $sys_map_get (param externref anyref) (result anyref)))
+
+  ;; UI Element (docs/ui-api.md)。kind の番号は engine の `api/ui.ts` が正。
+  (import "biwa:engine" "sys_ui_create" (func $sys_ui_create (param i32) (result i32)))
+  (import "biwa:engine" "sys_ui_set_property"
+    (func $sys_ui_set_property (param i32 i32 i32 i32 i32 i32 i32 i32 f32)))
+  (import "biwa:engine" "sys_ui_set_property_with_string"
+    (func $sys_ui_set_property_with_string (param i32 i32 i32 i32 f32 externref)))
+  (import "biwa:engine" "sys_ui_push_child" (func $sys_ui_push_child (param i32 i32)))
 }}
 
+import package::option::Option;
+import package::option::Option::Some;
+import package::option::Option::None;
+import package::convert::Into;
 import package::string::String;
-import package::game::window::Size;
+import package::game::color::Alpha;
+import package::game::canvas::Cx;
+import package::game::canvas::Cy;
+import package::game::canvas::Cw;
+import package::game::canvas::Ch;
+import package::game::canvas::Theta;
+import package::game::canvas::CanvasObjectParam;
+import package::game::canvas::CanvasObjectTransition;
+import package::game::canvas::CanvasObjectXTransition;
+import package::game::canvas::CanvasObjectYTransition;
+import package::game::canvas::CanvasObjectWTransition;
+import package::game::canvas::CanvasObjectHTransition;
+import package::game::canvas::CanvasObjectAlphaTransition;
+import package::game::canvas::CanvasObjectThetaTransition;
+import package::game::canvas::CanvasObjectTransitionContinuity;
+import package::game::canvas::CanvasObjectTransitionSyncMode;
+import package::time::Duration;
 
 // syscall の記述子。中身はエンジンとの規約であり、Biwa 側からは不透明。
 [[lang="syscall"]]
@@ -96,6 +138,9 @@ type Syscall = {{
 // --- canvas オブジェクト ---------------------------------------------------
 //
 // 座標は canvas の中央が原点で、x は右が正、y は**上が正**である。
+// 座標と大きさの単位は canvas の範囲が -50.0 から 50.0 になるもので
+// (`std::game::canvas`)、syscall には f32 で渡す。theta (度) も f32、alpha (0-255) は i32 で渡す。
+// エンジンとの取り決め (番号・値の詰め方) を知っているのはこのモジュールだけである。
 // 位置と回転はどちらも画像の中心を基準にする。
 // パラメータの番号 (param) と遷移の種類 (kind) はエンジンとの取り決めで、
 // 一覧は engine の `src/engine/api/transition.ts` にある。
@@ -103,26 +148,32 @@ type Syscall = {{
 
 // オブジェクトを canvas に置き、その id を返す。
 //
+// `canvas_ui_id` は出力先の UI Element `Canvas`。Canvas API の syscall は
+// 第一引数で出力先を指定する (`docs/ui-api-impl-status.md` §14)。
+// 座標の原点はその Canvas の中央である。以降の遷移・削除はオブジェクトの id で指す。
+//
 // `path` はパッケージの `assets/` を基準とした相対パスである。
-// `w` / `h` が負なら「指定しない」で、画像の元のサイズから決まる。
-// 片方だけ正ならアスペクトを保つ。
+// `w` / `h` が負なら「指定しない」。片方だけ正なら、画像の縦横比を保つように
+// (canvas の縦横比も考えて) エンジンがもう片方を決める。両方負なら画像の元の大きさ (px)。
 //
 // 読み込みは非同期だが、この呼び出しは待たない。
 // 読み込みに失敗しても id は返る (ゲーム側にできることが無いため)。
 [[native(arch="typescript")]]
 fn sys_create_object(
+  canvas_ui_id: Uint,
   path: String, layer: Uint,
-  x: Int, y: Int, w: Int, h: Int, alpha: Int, theta: Int,
+  x: Float, y: Float, w: Float, h: Float, alpha: Uint, theta: Float,
 ) -> Uint {{
   const id = allocObjectId();
-  createObject(id, path, layer, x, y, w, h, alpha, theta);
+  createObject(id, canvas_ui_id, path, layer, x, y, w, h, alpha, theta);
   return id;
 }}
 
 [[native(arch="wasm")]]
 fn sys_create_object(
+  canvas_ui_id: Uint,
   path: String, layer: Uint,
-  x: Int, y: Int, w: Int, h: Int, alpha: Int, theta: Int,
+  x: Float, y: Float, w: Float, h: Float, alpha: Uint, theta: Float,
 ) -> Uint {{
   local.get 0
   local.get 1
@@ -132,34 +183,16 @@ fn sys_create_object(
   local.get 5
   local.get 6
   local.get 7
+  local.get 8
   call $sys_create_object
 }}
 
-struct X {
-  x: Size,
-}
-
-impl X {
-  fn vw(vw: Float) -> Self {
-    Self { x = Size::Vw(vw) }
-  }
-}
-
-struct Y {
-  y: Size,
-}
-
-impl Y {
-  fn vh(vh: Float) -> Self {
-    Self { y = Size::Vh(vh) }
-  }
-}
-
 fn create_object(
+  canvas_ui_id: Uint,
   path: String, layer: Uint,
-  x: Int, y: Int, w: Int, h: Int, alpha: Int, theta: Int,
+  x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha, theta: Theta,
 ) -> Uint {
-  sys_create_object(path, layer, x, y, w, h, alpha, theta)
+  sys_create_object(canvas_ui_id, path, layer, x.value, y.value, w.into(), h.into(), alpha.into(), theta.into())
 }
 
 // `after` ミリ秒後にオブジェクトを消す。
@@ -167,36 +200,254 @@ fn create_object(
 // 完全に透明にしただけでは資源は解放されない。
 // 消えるアニメーションを出したあとは、その終わりに合わせてこれを呼ぶ。
 [[native(arch="typescript")]]
-fn delete_object(id: Uint, after: Uint) {{
+fn sys_delete_object(id: Uint, after: Uint) {{
   deleteObject(id, after);
 }}
 
 [[native(arch="wasm")]]
-fn delete_object(id: Uint, after: Uint) {{
+fn sys_delete_object(id: Uint, after: Uint) {{
   local.get 0
   local.get 1
   call $sys_delete_object
 }}
 
+// pub(super)
+fn delete_object(id: Uint, after: Duration) {
+  sys_delete_object(id, after.as_ms());
+}
+
 // 次の `start_transitions` に備えて遷移を積む。積むだけで何も起きない。
 //
 // `value` は一度限りの遷移では目標値、周期的な遷移では振幅。
 // `after` は発火からの遅れ、`duration` は遷移時間 (周期系では周期)。
+//
+// 値の単位はパラメータのもの (x / y / w / h は canvas の範囲が -50.0..50.0 の単位、
+// alpha は 0-255、theta は度)。値は `val_i` (整数) と `val_f` (浮動小数) の 2 枠で渡し
+// (`sys_ui_set_property` と同じ運用)、使わない方は 0 で埋める。
+// alpha は `val_i`、x / y / w / h / theta は `val_f` を使う (エンジンもそう読む)。
 [[native(arch="typescript")]]
-fn add_transition(id: Uint, param: Uint, kind: Uint, value: Int, after: Uint, duration: Uint) {{
-  addTransition(id, param, kind, value, after, duration);
+fn sys_add_transition(
+  id: Uint, param: Uint, kind: Uint, val_i: Int, val_f: Float, after: Uint, duration: Uint,
+) {{
+  addTransition(id, param, kind, val_i, val_f, after, duration);
 }}
 
 [[native(arch="wasm")]]
-fn add_transition(id: Uint, param: Uint, kind: Uint, value: Int, after: Uint, duration: Uint) {{
+fn sys_add_transition(
+  id: Uint, param: Uint, kind: Uint, val_i: Int, val_f: Float, after: Uint, duration: Uint,
+) {{
   local.get 0
   local.get 1
   local.get 2
   local.get 3
   local.get 4
   local.get 5
+  local.get 6
   call $sys_add_transition
 }}
+
+impl CanvasObjectParam {
+  fn as_raw(self) -> Uint {
+    match self {
+      CanvasObjectParam::X => 0, 
+      CanvasObjectParam::Y => 1, 
+      CanvasObjectParam::W => 2, 
+      CanvasObjectParam::H => 3, 
+      CanvasObjectParam::Alpha => 4,
+      CanvasObjectParam::Theta => 5,
+    }
+  }
+}
+
+// private helpers
+impl[V, D] CanvasObjectTransition[V, D] {
+  fn as_raw_kind(self) -> Uint {
+    match self {
+      CanvasObjectTransition::None => 0,
+      CanvasObjectTransition::Linear(_) => 1,
+      CanvasObjectTransition::EaseIn(_) => 2,
+      CanvasObjectTransition::EaseOut(_) => 3,
+      CanvasObjectTransition::EaseInOut(_) => 4,
+      CanvasObjectTransition::EaseOutIn(_) => 5,
+      CanvasObjectTransition::Sin(_) => 16,
+      CanvasObjectTransition::Triangle(_) => 17,
+      CanvasObjectTransition::Square(_) => 18,
+      CanvasObjectTransition::Saw(_) => 19,
+    }
+  }
+  
+  fn as_duration(self) -> Duration {
+    match self {
+      CanvasObjectTransition::None => Duration::ms(0),
+      CanvasObjectTransition::Linear(once) => once.duration,
+      CanvasObjectTransition::EaseIn(once) => once.duration,
+      CanvasObjectTransition::EaseOut(once) => once.duration,
+      CanvasObjectTransition::EaseInOut(once) => once.duration,
+      CanvasObjectTransition::EaseOutIn(once) => once.duration,
+      CanvasObjectTransition::Sin(lo) => lo.period,
+      CanvasObjectTransition::Triangle(lo) => lo.period,
+      CanvasObjectTransition::Square(lo) => lo.period,
+      CanvasObjectTransition::Saw(lo) => lo.period,
+    }
+  }
+
+  // 同じ型の `None` (そのパラメータの遷移を止める遷移)。
+  //
+  // `CanvasObjectTransition::None` と直接書くと、ペイロードが無いので
+  // 型引数 (V, D) がどこからも決まらない。戻り値を `Self` にして `self` の型から決める。
+  fn stop(self) -> Self {
+    CanvasObjectTransition::None
+  }
+
+  fn stop_loop_if_needed(self, id: Uint, param: CanvasObjectParam, after: Duration) {
+    let opt_continuity = match self {
+      CanvasObjectTransition::Sin(lo) => Some(lo.continuity),
+      CanvasObjectTransition::Triangle(lo) => Some(lo.continuity),
+      CanvasObjectTransition::Square(lo) => Some(lo.continuity),
+      CanvasObjectTransition::Saw(lo) => Some(lo.continuity),
+      _ => None,
+    };
+
+    match opt_continuity {
+      Some(continuity) => {
+        match continuity {
+          CanvasObjectTransitionContinuity::Infinite => {},
+          CanvasObjectTransitionContinuity::For(until) => {
+            sys_add_transition(
+              id,
+              param.as_raw(),
+              self.stop().as_raw_kind(),
+              0,
+              0.0,
+              after.add(until).as_ms(),
+              0);
+          },
+        }
+      },
+      None => {},
+    }
+  }
+}
+
+impl[V: Into[Float], D: Into[Float]] CanvasObjectTransition[V, D] {
+  fn as_fval(self) -> Float {
+    match self {
+      CanvasObjectTransition::None => 0.0,
+      CanvasObjectTransition::Linear(once) => once.value.into(),
+      CanvasObjectTransition::EaseIn(once) => once.value.into(),
+      CanvasObjectTransition::EaseOut(once) => once.value.into(),
+      CanvasObjectTransition::EaseInOut(once) => once.value.into(),
+      CanvasObjectTransition::EaseOutIn(once) => once.value.into(),
+      CanvasObjectTransition::Sin(lo) => lo.diff.into(),
+      CanvasObjectTransition::Triangle(lo) => lo.diff.into(),
+      CanvasObjectTransition::Square(lo) => lo.diff.into(),
+      CanvasObjectTransition::Saw(lo) => lo.diff.into(),
+    }
+  }
+}
+
+impl[V: Into[Uint], D: Into[Uint]] CanvasObjectTransition[V, D] {
+  fn as_uval(self) -> Uint {
+    match self {
+      CanvasObjectTransition::None => 0,
+      CanvasObjectTransition::Linear(once) => once.value.into(),
+      CanvasObjectTransition::EaseIn(once) => once.value.into(),
+      CanvasObjectTransition::EaseOut(once) => once.value.into(),
+      CanvasObjectTransition::EaseInOut(once) => once.value.into(),
+      CanvasObjectTransition::EaseOutIn(once) => once.value.into(),
+      CanvasObjectTransition::Sin(lo) => lo.diff.into(),
+      CanvasObjectTransition::Triangle(lo) => lo.diff.into(),
+      CanvasObjectTransition::Square(lo) => lo.diff.into(),
+      CanvasObjectTransition::Saw(lo) => lo.diff.into(),
+    }
+  }
+}
+
+// 1 つのパラメータに遷移を 1 つ積む。`after` は発火からの遅れ。
+// 周期系で終わりがあるものは、終わる時刻に `none` を積んで止める。
+// pub(super)
+fn add_x_transition(id: Uint, transition: CanvasObjectXTransition, after: Duration) {
+  sys_add_transition(
+    id,
+    CanvasObjectParam::X.as_raw(),
+    transition.as_raw_kind(),
+    0,
+    transition.as_fval(),
+    after.as_ms(),
+    transition.as_duration().as_ms());
+
+  transition.stop_loop_if_needed(id, CanvasObjectParam::X, after);
+}
+
+// pub(super)
+fn add_y_transition(id: Uint, transition: CanvasObjectYTransition, after: Duration) {
+  sys_add_transition(
+    id,
+    CanvasObjectParam::Y.as_raw(),
+    transition.as_raw_kind(),
+    0,
+    transition.as_fval(),
+    after.as_ms(),
+    transition.as_duration().as_ms());
+
+  transition.stop_loop_if_needed(id, CanvasObjectParam::Y, after);
+}
+
+// pub(super)
+fn add_w_transition(id: Uint, transition: CanvasObjectWTransition, after: Duration) {
+  sys_add_transition(
+    id,
+    CanvasObjectParam::W.as_raw(),
+    transition.as_raw_kind(),
+    0,
+    transition.as_fval(),
+    after.as_ms(),
+    transition.as_duration().as_ms());
+
+  transition.stop_loop_if_needed(id, CanvasObjectParam::W, after);
+}
+
+// pub(super)
+fn add_h_transition(id: Uint, transition: CanvasObjectHTransition, after: Duration) {
+  sys_add_transition(
+    id,
+    CanvasObjectParam::H.as_raw(),
+    transition.as_raw_kind(),
+    0,
+    transition.as_fval(),
+    after.as_ms(),
+    transition.as_duration().as_ms());
+
+  transition.stop_loop_if_needed(id, CanvasObjectParam::H, after);
+}
+
+// pub(super)
+fn add_alpha_transition(id: Uint, transition: CanvasObjectAlphaTransition, after: Duration) {
+  sys_add_transition(
+    id,
+    CanvasObjectParam::Alpha.as_raw(),
+    transition.as_raw_kind(),
+    transition.as_uval(),
+    0.0,
+    after.as_ms(),
+    transition.as_duration().as_ms());
+
+  transition.stop_loop_if_needed(id, CanvasObjectParam::Alpha, after);
+}
+
+// pub(super)
+fn add_theta_transition(id: Uint, transition: CanvasObjectThetaTransition, after: Duration) {
+  sys_add_transition(
+    id,
+    CanvasObjectParam::Theta.as_raw(),
+    transition.as_raw_kind(),
+    0,
+    transition.as_fval(),
+    after.as_ms(),
+    transition.as_duration().as_ms());
+
+  transition.stop_loop_if_needed(id, CanvasObjectParam::Theta, after);
+}
 
 // 積まれた遷移を発火する。オブジェクトを跨いで一斉に始まる。
 //
@@ -206,15 +457,29 @@ fn add_transition(id: Uint, param: Uint, kind: Uint, value: Int, after: Uint, du
 // `sync` が 0 でなければ、この演出はテキストの進行と結びつく。
 // クリックはまずこれを完了させ、`await_transitions` が待つ対象にもなる。
 [[native(arch="typescript")]]
-fn start_transitions(sync: Uint) {{
+fn sys_start_transitions(sync: Uint) {{
   startTransitions(sync);
 }}
 
 [[native(arch="wasm")]]
-fn start_transitions(sync: Uint) {{
+fn sys_start_transitions(sync: Uint) {{
   local.get 0
   call $sys_start_transitions
 }}
+
+impl CanvasObjectTransitionSyncMode {
+  fn as_raw(self) -> Uint {
+    match self {
+      CanvasObjectTransitionSyncMode::Free => 0,
+      CanvasObjectTransitionSyncMode::Sync => 1,
+    }
+  }
+}
+
+// pub(super)
+fn start_transitions(sync: CanvasObjectTransitionSyncMode) {
+  sys_start_transitions(sync.as_raw());
+}
 
 // sync 印の演出がすべて終わるまでシーンを止める。
 //
@@ -242,6 +507,8 @@ fn sleep(ms: Uint) {{
 
 // Content を 1 つ積む。まだ描画しない。
 //
+// - `ui_id` は出力先の MessageArea (UI Element)。Content API の syscall はすべて
+//   第一引数で出力先を指定する (`docs/ui-api-impl-status.md` §14)
 // - `speed` は秒間何文字出るか
 // - `size_unit` は 0 = vw, 1 = vh。`size_value` はその単位に対する値
 //   (`Size` は enum なので、wasm の引数に載せるために 2 つに割っている)
@@ -251,16 +518,18 @@ fn sleep(ms: Uint) {{
 //   算術で詰めると `a` が i32 の符号を跨ぐためである
 [[native(arch="typescript")]]
 fn sys_content_push_text(
+  ui_id: Uint,
   text: String, speed: Float,
   size_unit: Uint, size_value: Float,
   weight: Uint,
   r: Uint, g: Uint, b: Uint, a: Uint,
 ) {{
-  pushContentText(text, speed, size_unit, size_value, weight, r, g, b, a);
+  pushContentText(ui_id, text, speed, size_unit, size_value, weight, r, g, b, a);
 }}
 
 [[native(arch="wasm")]]
 fn sys_content_push_text(
+  ui_id: Uint,
   text: String, speed: Float,
   size_unit: Uint, size_value: Float,
   weight: Uint,
@@ -275,17 +544,19 @@ fn sys_content_push_text(
   local.get 6
   local.get 7
   local.get 8
+  local.get 9
   call $sys_content_push_text
 }}
 
 // 積まれた content をまとめて出し始める。
 [[native(arch="typescript")]]
-fn sys_content_flush() {{
-  flushContent();
+fn sys_content_flush(ui_id: Uint) {{
+  flushContent(ui_id);
 }}
 
 [[native(arch="wasm")]]
-fn sys_content_flush() {{
+fn sys_content_flush(ui_id: Uint) {{
+  local.get 0
   call $sys_content_flush
 }}
 
@@ -295,12 +566,13 @@ fn sys_content_flush() {{
 // (決めたこと 2)。待っても消したくない API を将来足すときに、
 // 変更がエンジンまで波及しないようにするための切り分けである。
 [[native(arch="typescript")]]
-fn sys_content_clear() {{
-  clearContent();
+fn sys_content_clear(ui_id: Uint) {{
+  clearContent(ui_id);
 }}
 
 [[native(arch="wasm")]]
-fn sys_content_clear() {{
+fn sys_content_clear(ui_id: Uint) {{
+  local.get 0
   call $sys_content_clear
 }}
 
@@ -336,6 +608,18 @@ fn int_to_string(val: Int) -> String {{
   call $sys_int_to_string
 }}
 
+// 整数を浮動小数にする。値の変換で、エンジンは呼ばない。
+[[native(arch="typescript")]]
+fn int_to_float(val: Int) -> Float {{
+  return val;
+}}
+
+[[native(arch="wasm")]]
+fn int_to_float(val: Int) -> Float {{
+  local.get 0
+  f32.convert_i32_s
+}}
+
 [[native(arch="typescript")]]
 fn float_to_string(val: Float) -> String {{
   return String(val);
@@ -345,4 +629,106 @@ fn float_to_string(val: Float) -> String {{
 fn float_to_string(val: Float) -> String {{
   local.get 0
   call $sys_float_to_string
+}}
+
+// --- UI Element --------------------------------------------------------
+//
+// `docs/ui-api.md` の Syscall 節をそのまま実装する。
+// Element kind / property kind の番号はエンジンとの取り決めで、
+// 一覧は engine の `src/engine/api/ui.ts` にある。
+//
+// create と set_property* を済ませてから push_child でアトミックに
+// 出現させる設計であり、この3段を隠すのは `game/ui.biwa` の仕事である。
+
+// UI Element を作り、その id を返す。
+//
+// `kind` は Element の種類 (Window / Page / Box / Link / Horizontal / ...)。
+// 積んで直ちに返る syscall なので、この呼び出しは待たない。
+[[native(arch="typescript")]]
+fn sys_ui_create(kind: Uint) -> Uint {{
+  const id = allocUiId();
+  createUiElement(id, kind);
+  return id;
+}}
+
+[[native(arch="wasm")]]
+fn sys_ui_create(kind: Uint) -> Uint {{
+  local.get 0
+  call $sys_ui_create
+}}
+
+// 数値の property を設定する。
+//
+// `val_u1`..`val_u4` / `val_i1`..`val_i2` / `val_f` のどれを使うかは
+// property kind ごとに決まっている (例: width は val_u1 が単位、val_f が値)。
+// 使わない枠は 0 で埋める。immediate の 0 は費用がほぼ無いため、
+// property の組み合わせごとに syscall を分けるより、この形のほうが安い。
+[[native(arch="typescript")]]
+fn sys_ui_set_property(
+  ui_id: Uint, kind: Uint,
+  val_u1: Uint, val_u2: Uint, val_u3: Uint, val_u4: Uint,
+  val_i1: Int, val_i2: Int,
+  val_f: Float,
+) {{
+  setUiProperty(ui_id, kind, val_u1, val_u2, val_u3, val_u4, val_i1, val_i2, val_f);
+}}
+
+[[native(arch="wasm")]]
+fn sys_ui_set_property(
+  ui_id: Uint, kind: Uint,
+  val_u1: Uint, val_u2: Uint, val_u3: Uint, val_u4: Uint,
+  val_i1: Int, val_i2: Int,
+  val_f: Float,
+) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  local.get 4
+  local.get 5
+  local.get 6
+  local.get 7
+  local.get 8
+  call $sys_ui_set_property
+}}
+
+// 文字列を伴う property を設定する (例: Page の page_id, Link の on_click_link)。
+[[native(arch="typescript")]]
+fn sys_ui_set_property_with_string(
+  ui_id: Uint, kind: Uint,
+  val_u: Uint, val_i: Int, val_f: Float,
+  val_s: String,
+) {{
+  setUiPropertyString(ui_id, kind, val_u, val_i, val_f, val_s);
+}}
+
+[[native(arch="wasm")]]
+fn sys_ui_set_property_with_string(
+  ui_id: Uint, kind: Uint,
+  val_u: Uint, val_i: Int, val_f: Float,
+  val_s: String,
+) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  local.get 4
+  local.get 5
+  call $sys_ui_set_property_with_string
+}}
+
+// 子 Element を親に積む。
+//
+// 親が子を複数持てるなら末尾に追加、1つのみ持てるなら既存を置き換え、
+// 持てないなら子はツリーから削除される (`docs/ui-api.md` の Syscall 節)。
+[[native(arch="typescript")]]
+fn sys_ui_push_child(parent: Uint, child: Uint) {{
+  pushUiChild(parent, child);
+}}
+
+[[native(arch="wasm")]]
+fn sys_ui_push_child(parent: Uint, child: Uint) {{
+  local.get 0
+  local.get 1
+  call $sys_ui_push_child
 }}

@@ -2,7 +2,7 @@
 // configuration given to `struct Game`.
 
 import package::game::color::Color;
-import package::game::window::Size;
+import package::game::ui::Size;
 import package::game::content::ContentSpeed;
 
 struct Config {

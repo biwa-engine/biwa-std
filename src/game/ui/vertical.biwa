@@ -1,0 +1,132 @@
+// `Vertical` (子を垂直に並べる Layout Element) の impl。
+//
+// struct 定義は `game/ui.biwa` にある。
+
+import package::string::String;
+import package::option::Option;
+import package::option::Option::Some;
+import package::option::Option::None;
+import package::convert::Into;
+import package::collections::Vec;
+import package::game::color::Color;
+import package::game::base_engine::sys_ui_create;
+import package::game::ui::UiElement;
+import package::game::ui::UiSize;
+import package::game::ui::Background;
+import package::game::ui::Vertical;
+import package::game::ui::element_kind_vertical;
+import package::game::ui::apply_layout_properties;
+import package::game::ui::apply_id;
+import package::game::ui::push_children;
+
+impl Vertical {
+  fn new(children: Vec[UiElement]) -> Self {
+    Self {
+      children = children,
+      id = None,
+      width = None,
+      height = None,
+      margin_left = None,
+      margin_right = None,
+      margin_top = None,
+      margin_bottom = None,
+      padding_left = None,
+      padding_right = None,
+      padding_top = None,
+      padding_bottom = None,
+      background = None,
+    }
+  }
+
+  fn push(self, child: UiElement) -> Self {
+    self.children.push(child);
+    self
+  }
+
+  // すべての Element が持てる任意の識別子。
+  fn id(self, value: String) -> Self {
+    self.id = Some(value);
+    self
+  }
+
+  fn width(self, value: UiSize) -> Self {
+    self.width = Some(value);
+    self
+  }
+
+  fn height(self, value: UiSize) -> Self {
+    self.height = Some(value);
+    self
+  }
+
+  fn margin_left(self, value: UiSize) -> Self {
+    self.margin_left = Some(value);
+    self
+  }
+
+  fn margin_right(self, value: UiSize) -> Self {
+    self.margin_right = Some(value);
+    self
+  }
+
+  fn margin_top(self, value: UiSize) -> Self {
+    self.margin_top = Some(value);
+    self
+  }
+
+  fn margin_bottom(self, value: UiSize) -> Self {
+    self.margin_bottom = Some(value);
+    self
+  }
+
+  fn padding_left(self, value: UiSize) -> Self {
+    self.padding_left = Some(value);
+    self
+  }
+
+  fn padding_right(self, value: UiSize) -> Self {
+    self.padding_right = Some(value);
+    self
+  }
+
+  fn padding_top(self, value: UiSize) -> Self {
+    self.padding_top = Some(value);
+    self
+  }
+
+  fn padding_bottom(self, value: UiSize) -> Self {
+    self.padding_bottom = Some(value);
+    self
+  }
+
+  fn background_color(self, value: Color) -> Self {
+    self.background = Some(Background::Color(value));
+    self
+  }
+
+  // `background_color` とは排他 (どちらか後に呼んだ方が勝つ)。
+  fn background_image(self, value: String) -> Self {
+    self.background = Some(Background::Image(value));
+    self
+  }
+
+  // 木を辿って syscall を発行する。
+  fn materialize(self) -> Uint {
+    let id = sys_ui_create(element_kind_vertical());
+    apply_id(id, self.id);
+    apply_layout_properties(
+      id, self.width, self.height,
+      self.margin_left, self.margin_right, self.margin_top, self.margin_bottom,
+      self.padding_left, self.padding_right, self.padding_top, self.padding_bottom,
+      self.background,
+    );
+    push_children(id, self.children);
+    id
+  }
+}
+
+impl Vertical: Into[UiElement] {
+  fn into(self) -> UiElement {
+    UiElement::Vertical(self)
+  }
+}
