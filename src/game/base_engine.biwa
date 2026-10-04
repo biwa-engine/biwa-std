@@ -291,6 +291,14 @@ impl[V, D] CanvasObjectTransition[V, D] {
     }
   }
 
+  // 同じ型の `None` (そのパラメータの遷移を止める遷移)。
+  //
+  // `CanvasObjectTransition::None` と直接書くと、ペイロードが無いので
+  // 型引数 (V, D) がどこからも決まらない。戻り値を `Self` にして `self` の型から決める。
+  fn stop(self) -> Self {
+    CanvasObjectTransition::None
+  }
+
   fn stop_loop_if_needed(self, id: Uint, param: CanvasObjectParam, after: Duration) {
     let opt_continuity = match self {
       CanvasObjectTransition::Sin(lo) => Some(lo.continuity),
@@ -308,7 +316,7 @@ impl[V, D] CanvasObjectTransition[V, D] {
             sys_add_transition(
               id,
               param.as_raw(),
-              CanvasObjectTransition::None.as_raw_kind(),
+              self.stop().as_raw_kind(),
               0,
               0.0,
               after.add(until).as_ms(),
