@@ -92,12 +92,17 @@
   (import "biwa:engine" "sys_ui_push_child" (func $sys_ui_push_child (param i32 i32)))
 }}
 
+import package::option::Option;
+import package::option::Option::Some;
+import package::option::Option::None;
 import package::convert::Into;
 import package::string::String;
+import package::game::color::Alpha;
 import package::game::canvas::Cx;
 import package::game::canvas::Cy;
 import package::game::canvas::Cw;
 import package::game::canvas::Ch;
+import package::game::canvas::Theta;
 import package::game::canvas::CanvasObjectParam;
 import package::game::canvas::CanvasObjectTransition;
 import package::game::canvas::CanvasObjectXTransition;
@@ -106,6 +111,8 @@ import package::game::canvas::CanvasObjectWTransition;
 import package::game::canvas::CanvasObjectHTransition;
 import package::game::canvas::CanvasObjectAlphaTransition;
 import package::game::canvas::CanvasObjectThetaTransition;
+import package::game::canvas::CanvasObjectTransitionContinuity;
+import package::game::canvas::CanvasObjectTransitionSyncMode;
 import package::time::Duration;
 
 // syscall の記述子。中身はエンジンとの規約であり、Biwa 側からは不透明。
@@ -164,7 +171,7 @@ fn sys_create_object(
 fn sys_create_object(
   canvas_ui_id: Uint,
   path: String, layer: Uint,
-  x: Float, y: Float, w: Float, h: Float, alpha: Float, theta: Float,
+  x: Float, y: Float, w: Float, h: Float, alpha: Uint, theta: Float,
 ) -> Uint {{
   local.get 0
   local.get 1
@@ -181,9 +188,9 @@ fn sys_create_object(
 fn create_object(
   canvas_ui_id: Uint,
   path: String, layer: Uint,
-  x: Cx, y: Cy, w: Cw, h: Ch, alpha: Float, theta: Float,
+  x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha, theta: Theta,
 ) -> Uint {
-  sys_create_object(canvas_ui_id, path, layer, x.value, y.value, w.value, h.value, alpha, theta)
+  sys_create_object(canvas_ui_id, path, layer, x.value, y.value, w.into(), h.into(), alpha.into(), theta.into())
 }
 
 // `after` ミリ秒後にオブジェクトを消す。
@@ -191,16 +198,23 @@ fn create_object(
 // 完全に透明にしただけでは資源は解放されない。
 // 消えるアニメーションを出したあとは、その終わりに合わせてこれを呼ぶ。
 [[native(arch="typescript")]]
-fn delete_object(id: Uint, after: Uint) {{
+fn sys_delete_object(id: Uint, after: Uint) {{
   deleteObject(id, after);
 }}
 
 [[native(arch="wasm")]]
-fn delete_object(id: Uint, after: Uint) {{
+fn sys_delete_object(id: Uint, after: Uint) {{
   local.get 0
   local.get 1
   call $sys_delete_object
 }}
+
+// pub(super)
+fn delete_object(id: Uint, after: Duration) {
+  if id > 0 {
+    sys_delete_object(id, after.as_ms())
+  }
+}
 
 // 次の `start_transitions` に備えて遷移を積む。積むだけで何も起きない。
 //
@@ -299,7 +313,7 @@ impl[V, D] CanvasObjectTransition[V, D] {
   }
 }
 
-impl[V: Into[Float], D] CanvasObjectTransition[V, D] {
+impl[V: Into[Float], D: Into[Float]] CanvasObjectTransition[V, D] {
   fn as_fval(self) -> Float {
     match self {
       CanvasObjectTransition::None => 0.0,
@@ -308,15 +322,15 @@ impl[V: Into[Float], D] CanvasObjectTransition[V, D] {
       CanvasObjectTransition::EaseOut(once) => once.value.into(),
       CanvasObjectTransition::EaseInOut(once) => once.value.into(),
       CanvasObjectTransition::EaseOutIn(once) => once.value.into(),
-      CanvasObjectTransition::Sin(lo) => lo.value.into(),
-      CanvasObjectTransition::Triangle(lo) => lo.value.into(),
-      CanvasObjectTransition::Square(lo) => lo.value.into(),
-      CanvasObjectTransition::Saw(lo) => lo.value.into(),
+      CanvasObjectTransition::Sin(lo) => lo.diff.into(),
+      CanvasObjectTransition::Triangle(lo) => lo.diff.into(),
+      CanvasObjectTransition::Square(lo) => lo.diff.into(),
+      CanvasObjectTransition::Saw(lo) => lo.diff.into(),
     }
   }
 }
 
-impl[V: Into[Uint], D] CanvasObjectTransition[V, D] {
+impl[V: Into[Uint], D: Into[Uint]] CanvasObjectTransition[V, D] {
   fn as_uval(self) -> Uint {
     match self {
       CanvasObjectTransition::None => 0.0,
@@ -325,25 +339,42 @@ impl[V: Into[Uint], D] CanvasObjectTransition[V, D] {
       CanvasObjectTransition::EaseOut(once) => once.value.into(),
       CanvasObjectTransition::EaseInOut(once) => once.value.into(),
       CanvasObjectTransition::EaseOutIn(once) => once.value.into(),
-      CanvasObjectTransition::Sin(lo) => lo.value.into(),
-      CanvasObjectTransition::Triangle(lo) => lo.value.into(),
-      CanvasObjectTransition::Square(lo) => lo.value.into(),
-      CanvasObjectTransition::Saw(lo) => lo.value.into(),
+      CanvasObjectTransition::Sin(lo) => lo.diff.into(),
+      CanvasObjectTransition::Triangle(lo) => lo.diff.into(),
+      CanvasObjectTransition::Square(lo) => lo.diff.into(),
+      CanvasObjectTransition::Saw(lo) => lo.diff.into(),
     }
   }
 }
 
+// pub(super)
 fn add_x_transition(id: Uint, traisition: CanvasObjectXTransition, after: Duration) {
   sys_add_transition(
     id,
     CanvasObjectParam::X.as_raw(),
     traisition.as_raw_kind(),
     traisition.as_fval(),
-    after,
-    traisition.as_duration());
+    after.as_ms(),
+    traisition.as_duration().as_ms());
     
   traisition.stop_loop_if_needed(id, CanvasObjectParam::X, after);
 }
+
+// pub(super)
+fn add_y_transition(id: Uint, traisition: CanvasObjectYTransition, after: Duration) {
+  sys_add_transition(
+    id,
+    CanvasObjectParam::Y.as_raw(),
+    traisition.as_raw_kind(),
+    traisition.as_fval(),
+    after.as_ms(),
+    traisition.as_duration().as_ms());
+    
+  traisition.stop_loop_if_needed(id, CanvasObjectParam::Y, after);
+}
+
+// TODO: w, h, alpha, theta
+// fn add_*_transition
 
 // 積まれた遷移を発火する。オブジェクトを跨いで一斉に始まる。
 //
@@ -353,15 +384,29 @@ fn add_x_transition(id: Uint, traisition: CanvasObjectXTransition, after: Durati
 // `sync` が 0 でなければ、この演出はテキストの進行と結びつく。
 // クリックはまずこれを完了させ、`await_transitions` が待つ対象にもなる。
 [[native(arch="typescript")]]
-fn start_transitions(sync: Uint) {{
+fn sys_start_transitions(sync: Uint) {{
   startTransitions(sync);
 }}
 
 [[native(arch="wasm")]]
-fn start_transitions(sync: Uint) {{
+fn sys_start_transitions(sync: Uint) {{
   local.get 0
   call $sys_start_transitions
 }}
+
+impl CanvasObjectTransitionSyncMode {
+  fn as_raw(self) -> Uint {
+    match self {
+      CanvasObjectTransitionSyncMode::Free => 0,
+      CanvasObjectTransitionSyncMode::Sync => 1,
+    }
+  }
+}
+
+// pub(super)
+fn start_transitions(sync: CanvasObjectTransitionSyncMode) {
+  sys_start_transitions(sync.as_raw());
+}
 
 // sync 印の演出がすべて終わるまでシーンを止める。
 //

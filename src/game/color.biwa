@@ -17,6 +17,10 @@ struct Alpha {
 impl Alpha {
   fn alpha(value: Uint) -> Alpha { Alpha { value = value } }
 
+  fn transparent() -> Alpha { Alpha { value = 0 } }
+
+  fn is_transparent(self) -> Bool { self.value == 0 }
+
   fn opaque() -> Alpha { Alpha { value = 255 } }
 
   fn is_opaque(self) -> Bool { self.value >= 255 }

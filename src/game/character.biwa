@@ -14,7 +14,9 @@ import package::game::canvas::Cx;
 import package::game::canvas::Cy;
 import package::game::canvas::Cw;
 import package::game::canvas::Ch;
+import package::game::canvas::Theta;
 import package::game::canvas::Position;
+import package::game::color::Alpha;
 
 impl[P] Character[P] {
   // **暫定**: `Game` を受け取るが、保持するのは出力先の束 (`GameWindow`) だけである
@@ -114,28 +116,28 @@ impl[P] Character[P] {
     CharacterBatchChain { chara = self, inner = self.visual().and() }
   }
 
-  fn x_then(self) -> CharacterParamChain[P] {
-    CharacterParamChain { chara = self, inner = self.visual().x_then() }
+  fn x_then(self) -> CharacterParamXChain[P] {
+    CharacterParamXChain::new(self, self.visual().x_then())
   }
 
-  fn y_then(self) -> CharacterParamChain[P] {
-    CharacterParamChain { chara = self, inner = self.visual().y_then() }
+  fn y_then(self) -> CharacterParamYChain[P] {
+    CharacterParamYChain::new(self, self.visual().y_then())
   }
 
-  fn w_then(self) -> CharacterParamChain[P] {
-    CharacterParamChain { chara = self, inner = self.visual().w_then() }
+  fn w_then(self) -> CharacterParamWChain[P] {
+    CharacterParamWChain::new(self, self.visual().w_then())
   }
 
-  fn h_then(self) -> CharacterParamChain[P] {
-    CharacterParamChain { chara = self, inner = self.visual().h_then() }
+  fn h_then(self) -> CharacterParamHChain[P] {
+    CharacterParamHChain::new(self, self.visual().h_then())
   }
 
-  fn alpha_then(self) -> CharacterParamChain[P] {
-    CharacterParamChain { chara = self, inner = self.visual().alpha_then() }
+  fn alpha_then(self) -> CharacterParamAlphaChain[P] {
+    CharacterParamAlphaChain::new(self, self.visual().alpha_then())
   }
 
-  fn theta_then(self) -> CharacterParamChain[P] {
-    CharacterParamChain { chara = self, inner = self.visual().theta_then() }
+  fn theta_then(self) -> CharacterParamThetaChain[P] {
+    CharacterParamThetaChain::new(self, self.visual().theta_then())
   }
 
   // --- 1 つだけ動かす近道 ---
@@ -155,7 +157,7 @@ impl[P] Character[P] {
   }
 
   fn fade_in(self, duration: Duration) -> Self {
-    self.visual().alpha_then().linear_then(255, duration).animate();
+    self.visual().alpha_then().linear_then(Alpha::opaque(), duration).animate();
     self
   }
 
@@ -178,42 +180,42 @@ struct CharacterBatchChain[P] {
 
 impl[P] CharacterBatchChain[P] {
   fn move_x_and(self, x: Cx) -> Self {
-    self.inner.move_x_and(x);
+    self.inner.x_move_and(x);
     self
   }
 
   fn move_y_and(self, y: Cy) -> Self {
-    self.inner.move_y_and(y);
+    self.inner.y_move_and(y);
     self
   }
 
   fn easein_x_and(self, x: Cx) -> Self {
-    self.inner.easein_x_and(x);
+    self.inner.x_easein_and(x);
     self
   }
 
   fn easeout_x_and(self, x: Cx) -> Self {
-    self.inner.easeout_x_and(x);
+    self.inner.x_easeout_and(x);
     self
   }
 
   fn easein_y_and(self, y: Cy) -> Self {
-    self.inner.easein_y_and(y);
+    self.inner.y_easein_and(y);
     self
   }
 
   fn easeout_y_and(self, y: Cy) -> Self {
-    self.inner.easeout_y_and(y);
+    self.inner.y_easeout_and(y);
     self
   }
 
   fn resize_w_and(self, w: Cw) -> Self {
-    self.inner.resize_w_and(w);
+    self.inner.w_resize_and(w);
     self
   }
 
   fn resize_h_and(self, h: Ch) -> Self {
-    self.inner.resize_h_and(h);
+    self.inner.h_resize_and(h);
     self
   }
 
@@ -238,12 +240,12 @@ impl[P] CharacterBatchChain[P] {
   }
 
   fn sin_x_and(self, amplitude: Cx, period: Duration) -> Self {
-    self.inner.sin_x_and(amplitude, period);
+    self.inner.x_sin_and(amplitude, period);
     self
   }
 
   fn sin_y_and(self, amplitude: Cy, period: Duration) -> Self {
-    self.inner.sin_y_and(amplitude, period);
+    self.inner.y_sin_and(amplitude, period);
     self
   }
 
@@ -264,8 +266,17 @@ struct CharacterParamChain[P, V, D] {
 }
 
 type CharacterParamXChain[P] = CharacterParamChain[P, Cx, Cw];
+type CharacterParamYChain[P] = CharacterParamChain[P, Cy, Ch];
+type CharacterParamWChain[P] = CharacterParamChain[P, Cw, Cw];
+type CharacterParamHChain[P] = CharacterParamChain[P, Ch, Ch];
+type CharacterParamAlphaChain[P] = CharacterParamChain[P, Alpha, Alpha];
+type CharacterParamThetaChain[P] = CharacterParamChain[P, Theta, Theta];
 
 impl[P, V, D] CharacterParamChain[P, V, D] {
+  fn new(chara: Character[P], inner: ObjectParamChain[V, D]) -> Self {
+    Self { chara = chara, inner = inner }
+  }
+
   fn linear_then(self, value: V, duration: Duration) -> Self {
     self.inner.linear_then(value, duration);
     self

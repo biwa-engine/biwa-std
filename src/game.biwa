@@ -1,10 +1,10 @@
 import package::string::String;
 import package::option::Option;
 import image::Image;
-import image::CanvasObject;
+import canvas::CanvasObject;
+import canvas::Position;
 import ui::GameWindow;
 import ui::GameCanvas;
-import ui::Position;
 import config::Config;
 
 // 進行中のノベルゲームを表す構造体

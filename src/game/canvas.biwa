@@ -13,9 +13,15 @@
 // 作るときは `cx(10.0)` のように初期化関数を使う (`vw()` / `vh()` と同じく import して使う)。
 
 import package::convert::Into;
+import package::option::Option;
+import package::option::Option::Some;
+import package::option::Option::None;
+import package::collections::Vec;
 import package::time::Duration;
 import package::time::Duration::ms;
 import package::game::color::Alpha;
+import package::game::ui::GameCanvas;
+import package::game::image::Image;
 
 // canvas 上の x 座標。
 struct Cx {
@@ -65,22 +71,28 @@ impl Cy: Into[Float] {
 }
 
 impl Cw {
-  fn cw(value: Float) -> Self { Self::Configured(value) }
+  fn cw(value: Float) -> Self { Cw::Configured(value) }
 }
 
 impl Cw: Into[Float] {
   fn into(self) -> Float {
-    self.value
+    match self {
+      Cw::Auto => -1.0,
+      Cw::Configured(value) => value,
+    }
   }
 }
 
 impl Ch {
-  fn ch(value: Float) -> Self { Self::Configured(value) }
+  fn ch(value: Float) -> Self { Ch::Configured(value) }
 }
 
 impl Ch: Into[Float] {
   fn into(self) -> Float {
-    self.value
+    match self {
+      Ch::Auto => -1.0,
+      Ch::Configured(value) => value,
+    }
   }
 }
 
@@ -107,6 +119,10 @@ enum CanvasObjectParam {
   Theta,
 }
 
+enum CanvasObjectTransitionSyncMode {
+  Free,
+  Sync,
+}
 
 // V: value
 // D: difference
@@ -150,14 +166,12 @@ type CanvasObjectThetaTransition = CanvasObjectTransition[Theta, Theta];
 
 // エンジンに置かれたオブジェクトへのハンドル。
 //
-// 遷移はエンジン側に積まれ、`transit()` を呼ぶまで始まらない。
-// std が持っているのは 2 種類の覚え書きだけである。
+// 遷移はエンジン側に積まれ、`base_engine::start_transitions()` を呼ぶまで始まらない。
+// std が持っているのは覚え書きだけである。
 //
 // - `x`..`theta`: 積んだ遷移の目標値。つまり**アニメーション後の値**。
 //   動いている画像の「今の位置」はエンジンからは取れないので、
 //   立ち絵の差し替え (`Character::change_visual`) ではこれを使う。
-// - `*_after`: そのパラメータに積んだ遷移の合計時間。
-//   連続した遷移の開始時刻を計算するために持つ。
 struct CanvasObject {
   id: Uint,
   // 置いた先の Canvas。差し替え (`Character::change_visual`) で同じ所に出し直すのに使う。
@@ -169,12 +183,6 @@ struct CanvasObject {
   h: Ch,
   alpha: Alpha,
   theta: Theta,
-  x_after: Duration,
-  y_after: Duration,
-  w_after: Duration,
-  h_after: Duration,
-  alpha_after: Duration,
-  theta_after: Duration,
 }
 
 impl CanvasObject {
@@ -182,7 +190,7 @@ impl CanvasObject {
     image: Image, canvas: GameCanvas, layer: Uint, x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha,
   ) -> Self {
     let id = package::game::base_engine::create_object(
-      canvas.ui_id, image.path, layer, x, y, w, h, alpha, 0.0);
+      canvas.ui_id, image.path, layer, x, y, w, h, alpha, Theta::theta(0.0));
 
     Self {
       id = id,
@@ -194,12 +202,6 @@ impl CanvasObject {
       h = h,
       alpha = alpha,
       theta = Theta::theta(0.0),
-      x_after = ms(0),
-      y_after = ms(0),
-      w_after = ms(0),
-      h_after = ms(0),
-      alpha_after = ms(0),
-      theta_after = ms(0),
     }
   }
 
@@ -214,162 +216,134 @@ impl CanvasObject {
       // ui_id も 0 は空き (「無し」)。
       canvas = GameCanvas { ui_id = 0 },
       layer = 0,
-      x = cx(0.0),
-      y = cy(0.0),
-      w = cw(0.0),
-      h = ch(0.0),
+      x = Cx::cx(0.0),
+      y = Cy::cy(0.0),
+      w = Cw::cw(0.0),
+      h = Ch::ch(0.0),
       alpha = 0,
       theta = 0.0,
-      x_after = ms(0),
-      y_after = ms(0),
-      w_after = ms(0),
-      h_after = ms(0),
-      alpha_after = ms(0),
-      theta_after = ms(0),
     }
   }
 
-  fn is_present(self) -> Bool {
-    self.id > 0
-  }
+  // fn is_present(self) -> Bool {
+  //   self.id > 0
+  // }
 
-  // そのパラメータに積んだ遷移の合計時間。次に積むものの開始時刻になる。
-  fn after_of(self, param: CanvasObjectParam) -> Duration {
-    match param {
-      CanvasObjectParam::X => self.x_after,
-      CanvasObjectParam::Y => self.y_after,
-      CanvasObjectParam::W => self.w_after,
-      CanvasObjectParam::H => self.h_after,
-      CanvasObjectParam::Alpha => self.alpha_after,
-      CanvasObjectParam::Theta => self.theta_after,
-    }
-  }
+  // // そのパラメータに積んだ遷移の合計時間。次に積むものの開始時刻になる。
+  // fn after_of(self, param: CanvasObjectParam) -> Duration {
+  //   match param {
+  //     CanvasObjectParam::X => self.x_after,
+  //     CanvasObjectParam::Y => self.y_after,
+  //     CanvasObjectParam::W => self.w_after,
+  //     CanvasObjectParam::H => self.h_after,
+  //     CanvasObjectParam::Alpha => self.alpha_after,
+  //     CanvasObjectParam::Theta => self.theta_after,
+  //   }
+  // }
 
-  fn advance(self, param: CanvasObjectParam, ms: Duration) {
-    match param {
-      CanvasObjectParam::X => { self.x_after = self.x_after.add(duration); },
-      CanvasObjectParam::Y => { self.y_after = self.y_after.add(duration); },
-      CanvasObjectParam::W => { self.w_after = self.w_after.add(duration); },
-      CanvasObjectParam::H => { self.h_after = self.h_after.add(duration); },
-      CanvasObjectParam::Alpha => { self.alpha_after = self.alpha_after.add(duration); },
-      CanvasObjectParam::Theta => { self.theta_after = self.theta_after.add(duration); },
-    }
-  }
+  // fn advance(self, param: CanvasObjectParam, ms: Duration) {
+  //   match param {
+  //     CanvasObjectParam::X => { self.x_after = self.x_after.add(duration); },
+  //     CanvasObjectParam::Y => { self.y_after = self.y_after.add(duration); },
+  //     CanvasObjectParam::W => { self.w_after = self.w_after.add(duration); },
+  //     CanvasObjectParam::H => { self.h_after = self.h_after.add(duration); },
+  //     CanvasObjectParam::Alpha => { self.alpha_after = self.alpha_after.add(duration); },
+  //     CanvasObjectParam::Theta => { self.theta_after = self.theta_after.add(duration); },
+  //   }
+  // }
 
-  // 積んだ遷移の目標値を覚える。値の単位はパラメータのもの。
-  fn remember(self, param: Uint, value: Float) {
-    if param == 0 { self.x = cx(value); }
-    if param == 1 { self.y = cy(value); }
-    if param == 2 { self.w = cw(value); }
-    if param == 3 { self.h = ch(value); }
-    if param == 4 { self.alpha = value; }
-    if param == 5 { self.theta = value; }
-  }
+  // // 積んだ遷移の目標値を覚える。値の単位はパラメータのもの。
+  // fn remember(self, param: Uint, value: Float) {
+  //   if param == 0 { self.x = cx(value); }
+  //   if param == 1 { self.y = cy(value); }
+  //   if param == 2 { self.w = cw(value); }
+  //   if param == 3 { self.h = ch(value); }
+  //   if param == 4 { self.alpha = value; }
+  //   if param == 5 { self.theta = value; }
+  // }
 
-  fn reset(self) {
-    self.x_after = 0;
-    self.y_after = 0;
-    self.w_after = 0;
-    self.h_after = 0;
-    self.alpha_after = 0;
-    self.theta_after = 0;
-  }
+  // fn reset(self) {
+  //   self.x_after = 0;
+  //   self.y_after = 0;
+  //   self.w_after = 0;
+  //   self.h_after = 0;
+  //   self.alpha_after = 0;
+  //   self.theta_after = 0;
+  // }
 
-  // 一度限りの遷移を積む。`transit()` を呼ぶまで始まらない。
-  //
-  // 同じパラメータに続けて積めば、前の遷移が終わったところから始まる。
-  // `value` の単位はパラメータのもの (座標・大きさは canvas の範囲が -50.0..50.0 の単位)。
-  // チェーン API (`x_then()` / `and()`) は型付きの値をこれに Float で渡す。
-  fn add_transition(self, param: CanvasObjectParam, kind: Uint, value: Float, duration: Duration) -> Self {
-    if self.is_present() {
-      package::game::base_engine::add_transition(
-        self.id, param, kind, value, self.after_of(param), duration.as_ms());
-      self.advance(param, duration.as_ms());
-      self.remember(param, value);
-    }
+  // // 一度限りの遷移を積む。`transit()` を呼ぶまで始まらない。
+  // //
+  // // 同じパラメータに続けて積めば、前の遷移が終わったところから始まる。
+  // // `value` の単位はパラメータのもの (座標・大きさは canvas の範囲が -50.0..50.0 の単位)。
+  // // チェーン API (`x_then()` / `and()`) は型付きの値をこれに Float で渡す。
+  // fn add_transition(self, param: CanvasObjectParam, kind: Uint, value: Float, duration: Duration) -> Self {
+  //   if self.is_present() {
+  //     package::game::base_engine::add_transition(
+  //       self.id, param, kind, value, self.after_of(param), duration.as_ms());
+  //     self.advance(param, duration.as_ms());
+  //     self.remember(param, value);
+  //   }
 
-    self
-  }
+  //   self
+  // }
 
-  // 周期的な遷移を積み、`until` 経過したところで止める。
-  //
-  // 止めるのは同じパラメータに `none` を置くことで行う。
-  // 周期系は終端を持たないので、これを置かないと次に同じパラメータを
-  // 駆動するまで揺れ続ける。
-  fn add_periodic(
-    self,
-    param: Uint,
-    kind: Uint,
-    amplitude: Float,
-    period: Duration,
-    until: Duration,
-  ) -> Self {
-    if self.is_present() {
-      let start = self.after_of(param);
+  // // 周期的な遷移を積み、`until` 経過したところで止める。
+  // //
+  // // 止めるのは同じパラメータに `none` を置くことで行う。
+  // // 周期系は終端を持たないので、これを置かないと次に同じパラメータを
+  // // 駆動するまで揺れ続ける。
+  // fn add_periodic(
+  //   self,
+  //   param: Uint,
+  //   kind: Uint,
+  //   amplitude: Float,
+  //   period: Duration,
+  //   until: Duration,
+  // ) -> Self {
+  //   if self.is_present() {
+  //     let start = self.after_of(param);
 
-      package::game::base_engine::add_transition(
-        self.id, param, kind, amplitude, start, period.as_ms());
-      package::game::base_engine::add_transition(
-        self.id, param, kind_none(), 0.0, start + until.as_ms(), 0);
+  //     package::game::base_engine::add_transition(
+  //       self.id, param, kind, amplitude, start, period.as_ms());
+  //     package::game::base_engine::add_transition(
+  //       self.id, param, kind_none(), 0.0, start + until.as_ms(), 0);
 
-      self.advance(param, until.as_ms());
-    }
+  //     self.advance(param, until.as_ms());
+  //   }
 
-    self
-  }
+  //   self
+  // }
 
-  // 止めない周期的な遷移。次に同じパラメータを駆動するまで続く。
-  fn add_periodic_forever(self, param: Uint, kind: Uint, amplitude: Float, period: Duration) -> Self {
-    if self.is_present() {
-      package::game::base_engine::add_transition(
-        self.id, param, kind, amplitude, self.after_of(param), period.as_ms());
-    }
+  // // 止めない周期的な遷移。次に同じパラメータを駆動するまで続く。
+  // fn add_periodic_forever(self, param: Uint, kind: Uint, amplitude: Float, period: Duration) -> Self {
+  //   if self.is_present() {
+  //     package::game::base_engine::add_transition(
+  //       self.id, param, kind, amplitude, self.after_of(param), period.as_ms());
+  //   }
 
-    self
-  }
+  //   self
+  // }
 
-  // そのパラメータの遷移をその場で終わらせる。
-  fn add_stop(self, param: Uint) -> Self {
-    if self.is_present() {
-      package::game::base_engine::add_transition(
-        self.id, param, kind_none(), 0.0, self.after_of(param), 0);
-    }
+  // // そのパラメータの遷移をその場で終わらせる。
+  // fn add_stop(self, param: Uint) -> Self {
+  //   if self.is_present() {
+  //     package::game::base_engine::add_transition(
+  //       self.id, param, kind_none(), 0.0, self.after_of(param), 0);
+  //   }
 
-    self
-  }
+  //   self
+  // }
 
-  // 遷移と遷移の間に間を置く。
-  fn add_sleep(self, param: Uint, duration: Duration) -> Self {
-    self.advance(param, duration.as_ms());
+  // // 遷移と遷移の間に間を置く。
+  // fn add_sleep(self, param: Uint, duration: Duration) -> Self {
+  //   self.advance(param, duration.as_ms());
 
-    self
-  }
+  //   self
+  // }
 
-  // 積んだ遷移を発火する。
-  // テキストの進行と結びつくので、クリックはまずこの演出を完了させる。
-  fn transit(self) -> Self {
-    if self.is_present() {
-      package::game::base_engine::start_transitions(1);
-      self.reset();
-    }
-
-    self
-  }
-
-  // テキストとは無関係に走らせる版。クリックでは飛ばない。
-  fn transit_free(self) -> Self {
-    if self.is_present() {
-      package::game::base_engine::start_transitions(0);
-      self.reset();
-    }
-
-    self
-  }
-
+  // pub
   fn delete(self, after: Duration) {
-    if self.is_present() {
-      package::game::base_engine::delete_object(self.id, after.as_ms());
-    }
+    package::game::base_engine::delete_object(self.id, after);
   }
 
   // --- チェーンの入口 ---
@@ -377,32 +351,39 @@ impl CanvasObject {
   // 複数のパラメータを同じ時間で一斉に動かすときは `and()`。
   // 1 つのパラメータを連続して動かすときは `*_then()`。
 
+  // pub
   fn and(self) -> ObjectBatchChain {
     ObjectBatchChain::new(self)
   }
 
-  fn x_then(self) -> ObjectParamChain {
-    ObjectParamChain::new(self, param_x())
+  // pub
+  fn x_then(self) -> ObjectParamXChain {
+    ObjectParamXChain::new(self)
   }
 
-  fn y_then(self) -> ObjectParamChain {
-    ObjectParamChain::new(self, param_y())
+  // pub
+  fn y_then(self) -> ObjectParamYChain {
+    ObjectParamYChain::new(self) 
   }
 
-  fn w_then(self) -> ObjectParamChain {
-    ObjectParamChain::new(self, param_w())
+  // pub
+  fn w_then(self) -> ObjectParamWChain {
+    ObjectParamWChain::new(self) 
   }
 
-  fn h_then(self) -> ObjectParamChain {
-    ObjectParamChain::new(self, param_h())
+  // pub
+  fn h_then(self) -> ObjectParamHChain {
+    ObjectParamHChain::new(self) 
   }
 
-  fn alpha_then(self) -> ObjectParamChain {
-    ObjectParamChain::new(self, param_alpha())
+  // pub
+  fn alpha_then(self) -> ObjectParamAlphaChain {
+    ObjectParamAlphaChain::new(self) 
   }
 
-  fn theta_then(self) -> ObjectParamChain {
-    ObjectParamChain::new(self, param_theta())
+  // pub
+  fn theta_then(self) -> ObjectParamThetaChain {
+    ObjectParamThetaChain::new(self) 
   }
 }
 
@@ -413,49 +394,67 @@ impl CanvasObject {
 
 struct ObjectParamChain[V, D] {
   obj: CanvasObject,
-  param: CanvasObjectParam,
   transitions: Vec[CanvasObjectTransition[V, D]],
   after: Duration,
   value: V,
 }
 
 type ObjectParamXChain = ObjectParamChain[Cx, Cw];
+type ObjectParamYChain = ObjectParamChain[Cy, Ch];
+type ObjectParamWChain = ObjectParamChain[Cw, Cw];
+type ObjectParamHChain = ObjectParamChain[Ch, Ch];
+type ObjectParamAlphaChain = ObjectParamChain[Alpha, Alpha];
+type ObjectParamThetaChain = ObjectParamChain[Theta, Theta];
 
 impl[V, D] ObjectParamChain[V, D] {
-  fn new(obj: CanvasObject, param: CanvasObjectParam) -> Self {
-    Self { obj = obj, param = param, transitions = Vec::new() }
+  fn new(obj: CanvasObject) -> Self {
+    Self {
+      obj = obj,
+      transitions = Vec::new(),
+      after = Duration::ms(0),
+    }
   }
 
   fn linear_then(self, value: V, duration: Duration) -> Self {
-    self.transitions.push(CanvasObjectTransition::Linear { value = value, duration = duration });
+    self.transitions.push(CanvasObjectTransition::Linear(CanvasObjectTransitionOnce {
+      value = value,
+      duration = duration }));
     self.after = self.after.add(duration);
     self.value = value;
     self
   }
 
   fn easein_then(self, value: V, duration: Duration) -> Self {
-    self.transitions.push(CanvasObjectTransition::EaseIn { value = value, duration = duration });
+    self.transitions.push(CanvasObjectTransition::EaseIn(CanvasObjectTransitionOnce {
+      value = value,
+      duration = duration }));
     self.after = self.after.add(duration);
     self.value = value;
     self
   }
 
   fn easeout_then(self, value: V, duration: Duration) -> Self {
-    self.transitions.push(CanvasObjectTransition::EaseOut { value = value, duration = duration });
+    self.transitions.push(CanvasObjectTransition::EaseOut(CanvasObjectTransitionOnce {
+      value = value,
+      duration = duration }));
     self.after = self.after.add(duration);
     self.value = value;
     self
   }
 
   fn easeinout_then(self, value: V, duration: Duration) -> Self {
-    self.transitions.push(CanvasObjectTransition::EaseInOut { value = value, duration = duration });
+    self.transitions.push(CanvasObjectTransition::EaseInOut(CanvasObjectTransitionOnce {
+      value = value,
+      duration = duration }));
     self.after = self.after.add(duration);
     self.value = value;
     self
   }
 
   fn easeoutin_then(self, value: V, duration: Duration) -> Self {
-    self.transitions.push(CanvasObjectTransition::EaseOutIn { value = value, duration = duration });
+    self.transitions.push(CanvasObjectTransition::EaseOutIn(CanvasObjectTransitionOnce {
+      value = value,
+      duration = duration }));
     self.after = self.after.add(duration);
     self.value = value;
     self
@@ -463,34 +462,38 @@ impl[V, D] ObjectParamChain[V, D] {
 
   // `until` の間だけ揺らす。多くの場合は終わりを決めたいのでこちらを使う。
   fn sin_then(self, amplitude: D, period: Duration, until: Duration) -> Self {
-    self.transitions.push(CanvasObjectTransition::Sin {
+    self.transitions.push(CanvasObjectTransition::Sin(CanvasObjectTransitionLoop {
       diff = amplitude,
       period = period,
-      continuity = CanvasObjectTransitionContinuity::For(until)
-    });
+      continuity = CanvasObjectTransitionContinuity::For(until),
+    }));
     self.after = self.after.add(until);
     self
   }
 
   // 止めずに揺らし続ける。次に同じパラメータを駆動するまで続く。
   fn sin_forever(self, amplitude: D, period: Duration) -> Self {
-    self.obj.add_periodic_forever(self.param, kind_sin(), amplitude.transition_value(), period);
+    self.transitions.push(CanvasObjectTransition::Sin(CanvasObjectTransitionLoop {
+      diff = amplitude,
+      period = period,
+      continuity = CanvasObjectTransitionContinuity::Infinite,
+    }));
     self
   }
 
-  fn stop_then(self) -> Self {
-    self.obj.add_stop(self.param);
-    self
-  }
+  // fn stop_then(self) -> Self {
+  //   self.obj.add_stop(self.param);
+  //   self
+  // }
 
-  fn sleep_then(self, duration: Duration) -> Self {
-    self.obj.add_sleep(self.param, duration);
-    self
-  }
+  // fn sleep_then(self, duration: Duration) -> Self {
+  //   self.obj.add_sleep(self.param, duration);
+  //   self
+  // }
 
-  fn animate_free(self) -> CanvasObject {
-    self.obj.transit_free()
-  }
+  // fn animate_free(self) -> CanvasObject {
+  //   self.obj.transit_free()
+  // }
 }
 
 impl ObjectParamXChain {
@@ -510,164 +513,365 @@ impl ObjectParamXChain {
   }
 }
 
+impl ObjectParamYChain {
+  // pub
+  fn animate(self) -> CanvasObject {
+    let i = 0;
+    while i < self.transitions.len() {
+      package::game::base_engine::add_y_transition(
+        self.obj.id, 
+        self.transitions.get(i).unwrap(),
+        Duration::ms(0));
+      
+      i = i + 1;
+    }
+    
+    self.obj
+  }
+}
+
+impl ObjectParamWChain {
+  // pub
+  fn animate(self) -> CanvasObject {
+    let i = 0;
+    while i < self.transitions.len() {
+      package::game::base_engine::add_w_transition(
+        self.obj.id, 
+        self.transitions.get(i).unwrap(),
+        Duration::ms(0));
+      
+      i = i + 1;
+    }
+    
+    self.obj
+  }
+}
+
+impl ObjectParamHChain {
+  // pub
+  fn animate(self) -> CanvasObject {
+    let i = 0;
+    while i < self.transitions.len() {
+      package::game::base_engine::add_h_transition(
+        self.obj.id, 
+        self.transitions.get(i).unwrap(),
+        Duration::ms(0));
+      
+      i = i + 1;
+    }
+    
+    self.obj
+  }
+}
+
+impl ObjectParamAlphaChain {
+  // pub
+  fn animate(self) -> CanvasObject {
+    let i = 0;
+    while i < self.transitions.len() {
+      package::game::base_engine::add_alpha_transition(
+        self.obj.id, 
+        self.transitions.get(i).unwrap(),
+        Duration::ms(0));
+      
+      i = i + 1;
+    }
+    
+    self.obj
+  }
+}
+
+impl ObjectParamThetaChain {
+  // pub
+  fn animate(self) -> CanvasObject {
+    let i = 0;
+    while i < self.transitions.len() {
+      package::game::base_engine::add_theta_transition(
+        self.obj.id, 
+        self.transitions.get(i).unwrap(),
+        Duration::ms(0));
+      
+      i = i + 1;
+    }
+    
+    self.obj
+  }
+}
+
 // --- 複数のパラメータを一斉に動かすチェーン ---------------------------------
 //
 // 「かつ」というニュアンスでメソッド名には and が付く。
 // 時間は最後の `animate_for()` でまとめて決まるので、
 // それまでパラメータごとに 1 つずつ積んでおく。
 
-struct ParamSlot {
-  used: Bool,
-  kind: Uint,
-  // 単位はパラメータのもの。
-  value: Float,
-  // 周期系のときの周期 [ms]。0 なら一度限りの遷移。
-  period: Uint,
-}
-
-impl ParamSlot {
-  fn empty() -> Self {
-    Self { used = FALSE, kind = 0, value = 0.0, period = 0 }
-  }
-
-  fn once(kind: Uint, value: Float) -> Self {
-    Self { used = TRUE, kind = kind, value = value, period = 0 }
-  }
-
-  fn periodic(kind: Uint, amplitude: Float, period: Uint) -> Self {
-    Self { used = TRUE, kind = kind, value = amplitude, period = period }
-  }
-}
-
 struct ObjectBatchChain {
   obj: CanvasObject,
-  x: ParamSlot,
-  y: ParamSlot,
-  w: ParamSlot,
-  h: ParamSlot,
-  alpha: ParamSlot,
-  theta: ParamSlot,
+  x: Option[CanvasObjectXBatchTransition],
+  y: Option[CanvasObjectYBatchTransition],
+  w: Option[CanvasObjectWBatchTransition],
+  h: Option[CanvasObjectHBatchTransition],
+  alpha: Option[CanvasObjectAlphaBatchTransition],
+  theta: Option[CanvasObjectThetaBatchTransition],
 }
+
+// V: value
+// D: difference
+enum CanvasObjectBatchTransition[V, D] {
+  None,
+  Linear(CanvasObjectBatchTransitionOnce[V]),
+  EaseIn(CanvasObjectBatchTransitionOnce[V]),
+  EaseOut(CanvasObjectBatchTransitionOnce[V]),
+  EaseInOut(CanvasObjectBatchTransitionOnce[V]),
+  EaseOutIn(CanvasObjectBatchTransitionOnce[V]),
+  Sin(CanvasObjectBatchTransitionLoop[D]),
+  Triangle(CanvasObjectBatchTransitionLoop[D]),
+  Square(CanvasObjectBatchTransitionLoop[D]),
+  Saw(CanvasObjectBatchTransitionLoop[D]),
+}
+
+struct CanvasObjectBatchTransitionOnce[V] {
+  value: V,
+}
+
+struct CanvasObjectBatchTransitionLoop[D] {
+  diff: D,
+  period: Duration,
+}
+
+type CanvasObjectXBatchTransition = CanvasObjectBatchTransition[Cx, Cw];
+type CanvasObjectYBatchTransition = CanvasObjectBatchTransition[Cy, Ch];
+type CanvasObjectWBatchTransition = CanvasObjectBatchTransition[Cw, Cw];
+type CanvasObjectHBatchTransition = CanvasObjectBatchTransition[Ch, Ch];
+type CanvasObjectAlphaBatchTransition = CanvasObjectBatchTransition[Alpha, Alpha];
+type CanvasObjectThetaBatchTransition = CanvasObjectBatchTransition[Theta, Theta];
+
+impl[V, D] CanvasObjectBatchTransition[V, D] {
+  fn as_transition(self, duration: Duration) -> CanvasObjectTransition[V, D] {
+    match self {
+      CanvasObjectBatchTransition::None => CanvasObjectTransition::None,
+      CanvasObjectBatchTransition::Linear(once) => CanvasObjectTransition::Linear(once.as_transition_once(duration)),
+      CanvasObjectBatchTransition::EaseIn(once) => CanvasObjectTransition::EaseIn(once.as_transition_once(duration)),
+      CanvasObjectBatchTransition::EaseOut(once) => CanvasObjectTransition::EaseOut(once.as_transition_once(duration)),
+      CanvasObjectBatchTransition::EaseInOut(once) => CanvasObjectTransition::EaseInOut(once.as_transition_once(duration)),
+      CanvasObjectBatchTransition::EaseOutIn(once) => CanvasObjectTransition::EaseOutIn(once.as_transition_once(duration)),
+      CanvasObjectBatchTransition::Sin(lo) => CanvasObjectTransition::Sin(lo.as_transition_loop(duration)),
+      CanvasObjectBatchTransition::Triangle(lo) => CanvasObjectTransition::Triangle(lo.as_transition_loop(duration)),
+      CanvasObjectBatchTransition::Square(lo) => CanvasObjectTransition::Square(lo.as_transition_loop(duration)),
+      CanvasObjectBatchTransition::Saw(lo) => CanvasObjectTransition::Saw(lo.as_transition_loop(duration)),
+    }
+  }
+}
+
+impl[V] CanvasObjectBatchTransitionOnce[V] {
+  fn as_transition_once(self, duration: Duration) -> CanvasObjectTransitionOnce[V] {
+    CanvasObjectTransitionOnce {
+      value = self.value,
+      duration = duration,
+    }
+  }
+}
+
+impl[D] CanvasObjectBatchTransitionLoop[D] {
+  fn as_transition_loop(self, duration: Duration) -> CanvasObjectTransitionLoop[D] {
+    CanvasObjectTransitionLoop {
+      value = self.value,
+      period = self.period,
+      continuity = CanvasObjectTransitionContinuity::For(duration),
+    }
+  }
+}
+
 
 impl ObjectBatchChain {
   fn new(obj: CanvasObject) -> Self {
     Self {
       obj = obj,
-      x = ParamSlot::empty(),
-      y = ParamSlot::empty(),
-      w = ParamSlot::empty(),
-      h = ParamSlot::empty(),
-      alpha = ParamSlot::empty(),
-      theta = ParamSlot::empty(),
+      x = None,
+      y = None,
+      w = None,
+      h = None,
+      alpha = None,
+      theta = None,
     }
   }
 
-  fn set(self, param: Uint, slot: ParamSlot) -> Self {
-    if param == 0 { self.x = slot; }
-    if param == 1 { self.y = slot; }
-    if param == 2 { self.w = slot; }
-    if param == 3 { self.h = slot; }
-    if param == 4 { self.alpha = slot; }
-    if param == 5 { self.theta = slot; }
+  // pub
+  fn x_move_and(self, x: Cx) -> Self {
+    self.x = Some(
+      CanvasObjectXBatchTransition::Linear(CanvasObjectBatchTransitionOnce {
+        value = x,
+      }));
+  
+    self
+  }
+
+  // pub
+  fn y_move_and(self, y: Cy) -> Self {
+    self.y = Some(
+      CanvasObjectYBatchTransition::Linear(CanvasObjectBatchTransitionOnce {
+        value = y,
+      }));
+  }
+
+  // pub
+  fn x_easein_and(self, x: Cx) -> Self {
+    self.x = Some(
+      CanvasObjectXBatchTransition::EaseIn(CanvasObjectBatchTransitionOnce {
+        value = x,
+      }));
+  
+    self
+  }
+
+  // pub
+  fn x_easeout_and(self, x: Cx) -> Self {
+    self.x = Some(
+      CanvasObjectXBatchTransition::EaseOut(CanvasObjectBatchTransitionOnce {
+        value = x,
+      }));
+  
+    self
+  }
+
+  // pub
+  fn y_easein_and(self, y: Cy) -> Self {
+    self.y = Some(
+      CanvasObjectYBatchTransition::EaseIn(CanvasObjectBatchTransitionOnce {
+        value = y,
+      }));
 
     self
   }
 
-  fn move_x_and(self, x: Cx) -> Self {
-    self.set(param_x(), ParamSlot::once(kind_linear(), x.value))
+  // pub
+  fn y_easeout_and(self, y: Cy) -> Self {
+    self.y = Some(
+      CanvasObjectYBatchTransition::EaseOut(CanvasObjectBatchTransitionOnce {
+        value = y,
+      }));
+  
+    self
   }
 
-  fn move_y_and(self, y: Cy) -> Self {
-    self.set(param_y(), ParamSlot::once(kind_linear(), y.value))
+  // pub
+  fn w_resize_and(self, w: Cw) -> Self {
+    self.w = Some(
+      CanvasObjectWBatchTransition::Linear(CanvasObjectBatchTransitionOnce {
+        value = w,
+      }));
+  
+    self
   }
 
-  fn easein_x_and(self, x: Cx) -> Self {
-    self.set(param_x(), ParamSlot::once(kind_ease_in(), x.value))
+  // pub
+  fn h_resize_and(self, h: Ch) -> Self {
+    self.h = Some(
+      CanvasObjectHBatchTransition::Linear(CanvasObjectBatchTransitionOnce {
+        value = h,
+      }));
+  
+    self
   }
 
-  fn easeout_x_and(self, x: Cx) -> Self {
-    self.set(param_x(), ParamSlot::once(kind_ease_out(), x.value))
+  // pub
+  fn fade_to_and(self, alpha: Alpha) -> Self {
+    self.alpha = Some(
+      CanvasObjectAlphaBatchTransition::Linear(CanvasObjectBatchTransitionOnce {
+        value = alpha,
+      }));
+  
+    self
   }
 
-  fn easein_y_and(self, y: Cy) -> Self {
-    self.set(param_y(), ParamSlot::once(kind_ease_in(), y.value))
-  }
-
-  fn easeout_y_and(self, y: Cy) -> Self {
-    self.set(param_y(), ParamSlot::once(kind_ease_out(), y.value))
-  }
-
-  fn resize_w_and(self, w: Cw) -> Self {
-    self.set(param_w(), ParamSlot::once(kind_linear(), w.value))
-  }
-
-  fn resize_h_and(self, h: Ch) -> Self {
-    self.set(param_h(), ParamSlot::once(kind_linear(), h.value))
-  }
-
-  fn fade_to_and(self, alpha: Int) -> Self {
-    self.set(param_alpha(), ParamSlot::once(kind_linear(), int_to_float(alpha)))
-  }
-
+  // pub
   fn be_visible_and(self) -> Self {
-    self.fade_to_and(255)
+    self.fade_to_and(Alpha::opaque())
   }
 
+  // pub
   fn be_invisible_and(self) -> Self {
-    self.fade_to_and(0)
+    self.fade_to_and(Alpha::transparent())
   }
 
-  fn rotate_and(self, theta: Int) -> Self {
-    self.set(param_theta(), ParamSlot::once(kind_linear(), int_to_float(theta)))
+  // pub
+  fn rotate_and(self, theta: Theta) -> Self {
+    self.theta = Some(
+      CanvasObjectThetaBatchTransition::Linear(CanvasObjectBatchTransitionOnce {
+        value = theta,
+      }));
+  
+    self
   }
 
-  fn sin_x_and(self, amplitude: Cx, period: Duration) -> Self {
-    self.set(param_x(), ParamSlot::periodic(kind_sin(), amplitude.value, period.as_ms()))
+  // pub
+  fn x_sin_and(self, amplitude: Cx, period: Duration) -> Self {
+    self.x = Some(
+      CanvasObjectXBatchTransition::Sin(CanvasObjectBatchTransitionLoop {
+        diff = amplitude,
+        period = period,
+      }));
+  
+    self
   }
 
-  fn sin_y_and(self, amplitude: Cy, period: Duration) -> Self {
-    self.set(param_y(), ParamSlot::periodic(kind_sin(), amplitude.value, period.as_ms()))
+  // pub
+  fn y_sin_and(self, amplitude: Cy, period: Duration) -> Self {
+    self.y = Some(
+      CanvasObjectYBatchTransition::Sin(CanvasObjectBatchTransitionLoop {
+        diff = amplitude,
+        period = period,
+      }));
+  
+    self
   }
 
-  fn sin_theta_and(self, amplitude: Int, period: Duration) -> Self {
-    self.set(param_theta(), ParamSlot::periodic(kind_sin(), int_to_float(amplitude), period.as_ms()))
+  // pub
+  fn theta_sin_and(self, amplitude: Theta, period: Duration) -> Self {
+    self.theta = Some(
+      CanvasObjectThetaBatchTransition::Sin(CanvasObjectBatchTransitionLoop {
+        diff = amplitude,
+        period = period,
+      }));
+  
+    self
   }
 
   // 積んだものを `duration` かけて一斉に動かす。
   // 周期系はその周期で揺れ、`duration` 経ったところで止まる。
+  // pub
   fn animate_for(self, duration: Duration) -> CanvasObject {
     self.stage(duration);
-    self.obj.transit()
+    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    
+    self.obj
   }
 
+  // pub
   fn animate_free_for(self, duration: Duration) -> CanvasObject {
     self.stage(duration);
-    self.obj.transit_free()
+    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Free);
+    
+    self.obj
   }
 
   fn stage(self, duration: Duration) {
-    self.emit(param_x(), self.x, duration);
-    self.emit(param_y(), self.y, duration);
-    self.emit(param_w(), self.w, duration);
-    self.emit(param_h(), self.h, duration);
-    self.emit(param_alpha(), self.alpha, duration);
-    self.emit(param_theta(), self.theta, duration);
-  }
-
-  fn emit(self, param: Uint, slot: ParamSlot, duration: Duration) {
-    if slot.used {
-      if slot.period == 0 {
-        self.obj.add_transition(param, slot.kind, slot.value, duration);
-      }
-      if slot.period > 0 {
-        self.obj.add_periodic(
-          param, slot.kind, slot.value, Duration::ms(slot.period), duration);
-      }
+    match self.x {
+      Some(batch_transition) => {
+        package::game::base_engine::add_x_transition(
+          self.obj.id, 
+          batch_transition.as_transition(duration),
+          Duration::ms(0));
+      },
+      None => {},
     }
+      
+    // TODO:
+    // y, w, h, alpha, theta
   }
 }
 
 // canvas 上の位置
+// pub
 struct Position {
   x: Cx,
   y: Cy,
