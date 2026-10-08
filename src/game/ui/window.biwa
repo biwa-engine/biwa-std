@@ -45,7 +45,7 @@ impl[S] Window[S] {
     self
   }
 
-  // 木を辿って syscall を発行し、実際に画面へ出現させる。ゲーム側の `fn app()` から呼ぶ。
+  // 木を辿って syscall を発行し、実際に画面へ出現させる。ゲーム側の `fn main()` から呼ぶ。
   // 最初に積まれた Page が既定で表示される (エンジン側の規則)。
   // Window は UiElement ではないため、この関数が Page 側の消費点でもある。
   fn show(self) {

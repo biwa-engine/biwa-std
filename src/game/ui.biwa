@@ -27,11 +27,11 @@ import package::game::base_engine::wait;
 //
 // `GameWindow` はランタイムが Window の ScenePage の Canvas / MessageArea から組み立てて、
 // `SceneStartButton` の `on_click(window)` に渡す。
-// (`fn on_new_game(window: GameWindow)` もまだコンパイラが要求するが、ランタイムはもう呼ばない。R7 で消える)
 // ランタイムは Biwa の値を直接は作れないので、下の host export
 // `__biwa_std_game_window_new` を呼んで作る。
-
-[[lang="game_window"]]
+//
+// コンパイラはこの型を知らない (lang item ではない)。ランタイムとの取り決めは
+// host export の名前と引数 (ui_id 2 つ) だけである。
 struct GameWindow {
   // Canvas API の出力先。無ければ Canvas API は使えない。
   canvas: Option[GameCanvas],
@@ -422,7 +422,7 @@ impl[S] UiElement[S] {
 // `Option` にせず、`Window::new` の引数で必ず受け取る。エンジンも、これらが設定されないまま
 // Page を積まれたら止める。
 //
-// ゲーム側の `fn app()` がこれを組み立てて `show()` する。
+// ゲーム側の `fn main()` (エントリポイント) がこれを組み立てて `show()` する。
 [[lang="ui_window"]]
 struct Window[S] {
   pages: Vec[Page[S]],
