@@ -33,9 +33,11 @@
     allocUiId,
     createUiElement,
     pushUiChild,
+    setUiHandler,
     setUiProperty,
     setUiPropertyString,
   } from "@biwa/engine/api/ui";
+  import { retainHandler } from "@biwa/engine/api/handler";
   import { Sys, type BiwaSyscall } from "@biwa/engine/vm/syscall";
 }}
 
@@ -91,6 +93,10 @@
   (import "biwa:engine" "sys_ui_set_property_with_string"
     (func $sys_ui_set_property_with_string (param i32 i32 i32 i32 f32 externref)))
   (import "biwa:engine" "sys_ui_push_child" (func $sys_ui_push_child (param i32 i32)))
+  ;; 関数の値は funcref で渡す。どの関数型 `(ref null $F)` も funcref の部分型なので、
+  ;; 単相化後の型名をここに書かずに済む (`docs/host-function-values.md`)。
+  (import "biwa:engine" "sys_ui_set_handler"
+    (func $sys_ui_set_handler (param i32 i32 funcref)))
 }}
 
 import package::option::Option;
@@ -731,4 +737,29 @@ fn sys_ui_push_child(parent: Uint, child: Uint) {{
   local.get 0
   local.get 1
   call $sys_ui_push_child
+}}
+
+// Element にハンドラ (ホストが後で呼ぶ関数) を設定する。
+//
+// `kind` はハンドラの種類で、番号は engine の `api/ui.ts` (`HandlerKind`) が正。
+// ホストは kind ごとに決まった形 (引数と戻り値) で `f` を呼ぶので、
+// `A` / `R` がその形に合っていることは、これを呼ぶ std の型付きの API が保証する。
+// ホストは引数・戻り値の中身を見ない (`docs/host-function-values.md`)。
+//
+// 積んで直ちに返る syscall である。同じ Element・同じ kind に設定し直すと置き換わる。
+// ハンドラは Element が消えるときに手放される。
+//
+// 今は引数 1 つの関数だけを扱う (要るものがそれだけなので)。
+// 他の個数が要れば、個数ごとに native を足す (wasm の import は同じでよい)。
+[[native(arch="typescript")]]
+fn sys_ui_set_handler[A, R](ui_id: Uint, kind: Uint, f: fn(A) -> R) {{
+  setUiHandler(ui_id, kind, retainHandler(f));
+}}
+
+[[native(arch="wasm")]]
+fn sys_ui_set_handler[A, R](ui_id: Uint, kind: Uint, f: fn(A) -> R) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  call $sys_ui_set_handler
 }}
