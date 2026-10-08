@@ -1,7 +1,8 @@
 // `Canvas` (Canvas API の出力先になる Element) の impl。
 //
 // struct 定義は `game/ui.biwa` にある。出力先としての ui_id は、
-// ランタイムが `GameWindow` (`GameCanvas`) に詰めて `on_new_game` に渡す。
+// ランタイムが `GameWindow` (`GameCanvas`) に詰めて `SceneStartButton` の `on_click` に渡す
+// (ScenePage の Canvas のとき)。
 
 import package::string::String;
 import package::option::Option;

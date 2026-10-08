@@ -1,0 +1,74 @@
+// `ScenePage` (scene を映すページ) の impl。
+//
+// struct 定義は `game/ui.biwa` にある。`Window[S]` が 1 つだけ持ち (`Window::new` の引数)、
+// `SceneStartButton` が押されて scene が始まるときに表示される。Link では遷移できない。
+//
+// 子は Canvas (Canvas API の出力先) と MessageArea (Content API の出力先) を 1 つずつまで持てる
+// (どちらも省略可)。エンジンは Canvas を下、MessageArea を上に重ね、
+// それぞれ ScenePage の中にいるのと同じように配置する (`Layers` と同じ置き方)。
+// 呼ばれるのは `Window::show` からだけを想定している。
+
+import package::string::String;
+import package::option::Option;
+import package::option::Option::Some;
+import package::option::Option::None;
+import package::game::color::Color;
+import package::game::base_engine::sys_ui_create;
+import package::game::base_engine::sys_ui_push_child;
+import package::game::ui::Background;
+import package::game::ui::Canvas;
+import package::game::ui::MessageArea;
+import package::game::ui::ScenePage;
+import package::game::ui::element_kind_scene_page;
+import package::game::ui::apply_background;
+import package::game::ui::apply_id;
+
+impl[S] ScenePage[S] {
+  // Canvas も MessageArea も持たない ScenePage。`canvas` / `message_area` で足す。
+  fn new() -> Self {
+    Self { canvas = None, message_area = None, background = None, id = None }
+  }
+
+  // scene の Canvas API の出力先。呼び直すと置き換わる。
+  fn canvas(self, value: Canvas[S]) -> Self {
+    self.canvas = Some(value);
+    self
+  }
+
+  // scene の Content API の出力先。呼び直すと置き換わる。
+  fn message_area(self, value: MessageArea[S]) -> Self {
+    self.message_area = Some(value);
+    self
+  }
+
+  // すべての Element が持てる任意の識別子。
+  fn id(self, value: String) -> Self {
+    self.id = Some(value);
+    self
+  }
+
+  fn background_color(self, value: Color) -> Self {
+    self.background = Some(Background::Color(value));
+    self
+  }
+
+  // `background_color` とは排他 (どちらか後に呼んだ方が勝つ)。
+  fn background_image(self, value: String) -> Self {
+    self.background = Some(Background::Image(value));
+    self
+  }
+
+  // 木を辿って syscall を発行し、その ui_id を返す。Window に結びつけるのは `Window::show`。
+  fn materialize(self) -> Uint {
+    let id = sys_ui_create(element_kind_scene_page());
+    apply_id(id, self.id);
+    apply_background(id, self.background);
+    if self.canvas.is_some() {
+      sys_ui_push_child(id, self.canvas.unwrap().materialize());
+    }
+    if self.message_area.is_some() {
+      sys_ui_push_child(id, self.message_area.unwrap().materialize());
+    }
+    id
+  }
+}

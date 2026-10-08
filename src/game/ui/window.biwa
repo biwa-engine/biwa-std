@@ -11,26 +11,26 @@ import package::collections::Vec;
 import package::game::Scene;
 import package::game::base_engine::sys_ui_create;
 import package::game::base_engine::sys_ui_set_handler;
-import package::game::base_engine::sys_ui_set_property_with_string;
+import package::game::base_engine::sys_ui_set_property;
 import package::game::ui::Window;
 import package::game::ui::Page;
+import package::game::ui::ScenePage;
 import package::game::ui::element_kind_window;
 import package::game::ui::apply_id;
-import package::game::ui::property_kind_window_scene_page_id;
+import package::game::ui::property_kind_window_scene_page;
 import package::game::ui::handler_kind_window_main_scene;
 
 impl[S] Window[S] {
   // Window を組み立てる。まだ syscall は発行しない。
   //
-  // - `main_scene`: scene 本体。scene を映す Page に遷移すると始まる。
-  // - `scene_page_id`: scene を映す Page の page_id。その Page の `canvas` / `message_area` が
-  //   scene の出力先になる。
+  // - `main_scene`: scene 本体。`SceneStartButton` が押されると始まる。
+  // - `scene_page`: scene を映すページ。その Canvas / MessageArea が scene の出力先になる。
   // - `pages`: 子となる Page の列。
   //
-  // `main_scene` と `scene_page_id` はノベルゲームとして scene を始めるのに欠かせないので、
+  // `main_scene` と `scene_page` はノベルゲームとして scene を始めるのに欠かせないので、
   // ビルダーではなくここで必ず受け取る。
-  fn new(main_scene: Scene[S], scene_page_id: String, pages: Vec[Page[S]]) -> Self {
-    Self { pages = pages, id = None, main_scene = main_scene, scene_page_id = scene_page_id }
+  fn new(main_scene: Scene[S], scene_page: ScenePage[S], pages: Vec[Page[S]]) -> Self {
+    Self { pages = pages, id = None, main_scene = main_scene, scene_page = scene_page }
   }
 
   // Page を追加する。
@@ -51,10 +51,10 @@ impl[S] Window[S] {
   fn show(self) {
     let id = sys_ui_create(element_kind_window());
     apply_id(id, self.id);
-    // Page を積む前に設定する。最初の Page が積まれた時点で表示されるので、
-    // それが scene の Page なら、その時点で分かっている必要がある。
-    // エンジンも、これらが無いまま Page を積まれたら止める。
-    sys_ui_set_property_with_string(id, property_kind_window_scene_page_id(), 0, 0, 0.0, self.scene_page_id);
+    // Page を積む前に設定する。エンジンは、これらが無いまま Page を積まれたら止める。
+    // ScenePage は ui_id を Window に設定すると Window に結びつく (push_child はしない。Link では遷移できない)。
+    let scene_page_id = self.scene_page.materialize();
+    sys_ui_set_property(id, property_kind_window_scene_page(), scene_page_id, 0, 0, 0, 0, 0, 0.0);
     // scene 本体はホストに預ける (`docs/host-function-values.md`)。
     sys_ui_set_handler(id, handler_kind_window_main_scene(), self.main_scene);
     let i = 0;
