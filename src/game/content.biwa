@@ -123,7 +123,7 @@ impl Float: Into[Content] {
 // ゲーム開発者やサードパーティが直接呼ぶことは想定していない。
 
 [[lang="content_push"]]
-fn content_push[C: Into[Content], T, U](game: Game[T, U], content: C) {
+fn content_push[C: Into[Content], S](game: Game[S], content: C) {
   let c: Content = content.into();
   match c {
     Content::Text(text) => {
@@ -139,7 +139,7 @@ fn content_push[C: Into[Content], T, U](game: Game[T, U], content: C) {
 }
 
 [[lang="content_flush_and_wait"]]
-fn content_flush_and_wait[T, U](game: Game[T, U]) {
+fn content_flush_and_wait[S](game: Game[S]) {
   message_area_of(game).flush();
   // 将来的に各種イベントを受け取る機構が検討されている。
   // 共通のイベントハンドラをエンジン側が呼び、種類ごとに振り分ける形などが考えられる。
@@ -156,7 +156,7 @@ fn content_flush_and_wait[T, U](game: Game[T, U]) {
 // `GameWindow` に MessageArea が無い (ランタイムが渡さなかった) のに
 // テキストを出そうとするのはゲーム側の構成の誤りなので、黙って捨てずに止める
 // (`Option::unwrap` → `abort`。wasm では trap する)。
-fn message_area_of[T, U](game: Game[T, U]) -> GameMessageArea {
+fn message_area_of[S](game: Game[S]) -> GameMessageArea {
   game.window.message_area.unwrap()
 }
 

@@ -8,17 +8,16 @@ import ui::GameCanvas;
 import config::Config;
 
 // 進行中のノベルゲームを表す構造体
-// C: キャラクター構造体Character[V]のみをいくつもメンバに含む構造体
-//    - characters.akane でakaneというキャラクターにアクセスできる
-//    というようにユーザが定義
 // S: ゲーム内で(セーブ、ロードも関係なく)継続して保持したい状態をいくつもメンバに含む構造体
 //    - states.likeabilities.akane でakaneというキャラクターのプレイヤーへの好感度にアクセスできる
 //    - states.game_difficulty でゲームの難易度にアクセスできる
 //    というようにユーザが定義
+//
+// 以前はキャラクターの束を別の型引数 `C` (`Game[C, S]`) で持っていたが廃止した。
+// キャラクターが要るなら `S` のメンバに持つか、scene の中で作る。
 [[lang="game"]]
-struct Game[C, S] {
+struct Game[S] {
   name: String, // ゲームの名前
-  characters: C,
   states: S,
   window: GameWindow,
 
@@ -29,13 +28,12 @@ struct Game[C, S] {
   config: Config,
 }
 
-impl[C, S] Game[C, S] {
+impl[S] Game[S] {
   // `window` (出力先の束) はランタイムが組み立てて `on_new_game(window)` に渡したもの。
   // ゲーム側はそれをそのままここに渡す。
-  fn new(window: GameWindow, name: String, characters: C, states: S, config: Config) -> Self {
+  fn new(window: GameWindow, name: String, states: S, config: Config) -> Self {
     Self {
       name = name,
-      characters = characters,
       states = states,
       window = window,
       config = config,
@@ -68,9 +66,8 @@ struct Character[P] {
   // 出力先の束。描画 (`appear` など) の出力先をここから取る。
   //
   // **暫定**: `Character::new` は `Game` を受け取るが、今は `GameWindow` だけを保持する。
-  // `Game[C, S]` は将来 `Game[S]` (S = ユーザ定義の状態) になり、Character は
-  // `Game` の状態を共有・更新するようになる想定だが、それまでは `Character` 型への
-  // 影響を最小にするためにこの形にしている。
+  // Character は将来 `Game[S]` の状態を共有・更新するようになる想定だが、
+  // それまでは `Character` 型への影響を最小にするためにこの形にしている。
   window: GameWindow,
 }
 
