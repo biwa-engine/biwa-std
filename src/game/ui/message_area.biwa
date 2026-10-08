@@ -18,7 +18,7 @@ import package::game::ui::element_kind_message_area;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 
-impl MessageArea {
+impl[S] MessageArea[S] {
   fn new() -> Self {
     Self {
       id = None,
@@ -117,8 +117,8 @@ impl MessageArea {
   }
 }
 
-impl MessageArea: Into[UiElement] {
-  fn into(self) -> UiElement {
+impl[S] MessageArea[S]: Into[UiElement[S]] {
+  fn into(self) -> UiElement[S] {
     UiElement::MessageArea(self)
   }
 }

@@ -5,6 +5,7 @@ import package::option::Option;
 import package::option::Option::Some;
 import package::option::Option::None;
 import package::collections::Vec;
+import package::game::Scene;
 import package::game::font::TextWeight;
 import package::game::color::Color;
 import package::game::base_engine::sys_content_push_text;
@@ -191,6 +192,11 @@ fn element_kind_message_area() -> Uint { 9 }
 fn element_kind_layers() -> Uint { 10 }
 // Button は funcref 前提のため割り当てない (`docs/ui-api.md`)。
 
+// ハンドラ (ホストが後で呼ぶ関数) の kind 番号。engine の `api/ui.ts` の `HandlerKind` と一致させる。
+// 規定は `docs/host-function-values.md`。
+// Window の `main_scene` (`Scene[S]`)。
+fn handler_kind_window_main_scene() -> Uint { 0 }
+
 // property の kind 番号。engine の `api/ui.ts` の `PropertyKind` と一致させる。
 fn property_kind_width() -> Uint { 0 }
 fn property_kind_height() -> Uint { 1 }
@@ -347,7 +353,7 @@ fn apply_text_properties(
 
 // 子要素をまとめて materialize し、親に積む。
 // Horizontal / Vertical / HorizontalGrid / Page で共通する。
-fn push_children(parent_id: Uint, children: Vec[UiElement]) {
+fn push_children[S](parent_id: Uint, children: Vec[UiElement[S]]) {
   let i = 0;
   while i < children.len() {
     let child_id = children.get(i).unwrap().materialize();
@@ -360,19 +366,19 @@ fn push_children(parent_id: Uint, children: Vec[UiElement]) {
 //
 // syscall はここでは発行しない。`materialize()` が唯一の消費点であり、
 // 木を再帰的に辿って初めて `sys_ui_*` を発行する。
-enum UiElement {
-  Box(Box),
-  Link(Link),
-  Horizontal(Horizontal),
-  Vertical(Vertical),
-  HorizontalGrid(HorizontalGrid),
-  Image(UiImage),
-  Canvas(Canvas),
-  MessageArea(MessageArea),
-  Layers(Layers),
+enum UiElement[S] {
+  Box(Box[S]),
+  Link(Link[S]),
+  Horizontal(Horizontal[S]),
+  Vertical(Vertical[S]),
+  HorizontalGrid(HorizontalGrid[S]),
+  Image(UiImage[S]),
+  Canvas(Canvas[S]),
+  MessageArea(MessageArea[S]),
+  Layers(Layers[S]),
 }
 
-impl UiElement {
+impl[S] UiElement[S] {
   // 木を辿って syscall を発行し、実際に UI Element として出現させる。
   // enum の variant で分岐するのはここ 1 箇所だけである。
   fn materialize(self) -> Uint {
@@ -401,21 +407,28 @@ impl UiElement {
 
 // ウィンドウ。UI の root となる Element。子は Page のみ持てる。
 //
-// ランタイムは起動時に playable package の `fn app() -> Window` を呼び、
-// 返った Window を host export `__biwa_std_window_show` で表示する
-// (コンパイラが lang item `ui_window` を使って `app` のシグニチャを検査している)。
+// 型引数 `S` はゲームの状態の型 (`Game[S]` の `S`)。UI の木全体で共有し、
+// `main_scene` (と、いずれ `SceneStartButton` の `on_click`) の `Game[S]` を揃える。
+//
+// ノベルゲームとして scene を始められることを保証するもの (`main_scene` / `scene_page_id`) は
+// `Option` にせず、`Window::new` の引数で必ず受け取る。エンジンも、これらが設定されないまま
+// Page を積まれたら止める。
+//
+// ゲーム側の `fn app()` がこれを組み立てて `show()` する。
 [[lang="ui_window"]]
-struct Window {
-  pages: Vec[Page],
+struct Window[S] {
+  pages: Vec[Page[S]],
   id: Option[String],
+  // scene 本体。scene を映す Page に遷移すると、この scene が始まる。
+  main_scene: Scene[S],
   // scene を映す Page の page_id。この Page に遷移すると scene が始まる (§14 S8)。
-  scene_page_id: Option[String],
+  scene_page_id: String,
 }
 
 // ページ。Window の子として、page_id で区別され、Link で遷移できる。
-struct Page {
+struct Page[S] {
   page_id: String,
-  children: Vec[UiElement],
+  children: Vec[UiElement[S]],
   background: Option[Background],
   id: Option[String],
   // scene を映す Page のとき、Canvas API / Content API の出力先にする
@@ -426,8 +439,8 @@ struct Page {
 
 // 領域を区切る最も基本的な Element。子を 1 つまで持てる (無くてもよい)。
 // テキストも持てる (子と両方持つときはテキストが先に並ぶ)。
-struct Box {
-  child: Option[UiElement],
+struct Box[S] {
+  child: Option[UiElement[S]],
   id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
@@ -449,7 +462,7 @@ struct Box {
 
 // リンク。クリックすると同じ Window 内の、指定した page_id を持つ Page に遷移する。
 // 子は持てない。テキストを持てる。
-struct Link {
+struct Link[S] {
   on_click_link: String,
   id: Option[String],
   width: Option[UiSize],
@@ -471,8 +484,8 @@ struct Link {
 }
 
 // 子を水平に並べる Layout Element。
-struct Horizontal {
-  children: Vec[UiElement],
+struct Horizontal[S] {
+  children: Vec[UiElement[S]],
   id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
@@ -488,8 +501,8 @@ struct Horizontal {
 }
 
 // 子を垂直に並べる Layout Element。
-struct Vertical {
-  children: Vec[UiElement],
+struct Vertical[S] {
+  children: Vec[UiElement[S]],
   id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
@@ -505,8 +518,8 @@ struct Vertical {
 }
 
 // `column` 本の列に並べ、折り返す Layout Element。
-struct HorizontalGrid {
-  children: Vec[UiElement],
+struct HorizontalGrid[S] {
+  children: Vec[UiElement[S]],
   id: Option[String],
   column: Uint,
   width: Option[UiSize],
@@ -529,7 +542,7 @@ struct HorizontalGrid {
 // 同じファイルは元より、同じスコープに両方 import すると名前が衝突する
 // (Biwa には import のエイリアスが無い)。エンジン側の kind 番号には
 // 影響しない、std 側だけの命名判断である。
-struct UiImage {
+struct UiImage[S] {
   path: String,
   id: Option[String],
   width: Option[UiSize],
@@ -550,7 +563,7 @@ struct UiImage {
 // Element として切り出しておくのは、複数キャンバスやミラーリングに備えるため
 // (`docs/ui-api.md`)。`Canvas` の名前はもともと `GameCanvas` が使っていたが、
 // UI Element の名前に譲った (§14)。
-struct Canvas {
+struct Canvas[S] {
   id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
@@ -568,7 +581,7 @@ struct Canvas {
 // Content API (ノベル表現) の出力先になる Element。子は持てない。
 //
 // scene の生テキストや `$` の埋め込み式はここに出る。`GameMessageArea` がこの ui_id を持つ。
-struct MessageArea {
+struct MessageArea[S] {
   id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
@@ -589,7 +602,7 @@ struct MessageArea {
 // 互いに干渉しない。前後は push された順で決まり、**後から push したものほど上**になる
 // (`Layers::new(Vec::of(下)).push(上)`)。背景の Canvas の上にメッセージ枠を重ねる、
 // といった用途に使う。
-struct Layers {
-  children: Vec[UiElement],
+struct Layers[S] {
+  children: Vec[UiElement[S]],
   id: Option[String],
 }

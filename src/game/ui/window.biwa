@@ -1,4 +1,4 @@
-// `Window` (UI の root Element) の impl。
+// `Window[S]` (UI の root Element) の impl。
 //
 // struct 定義は `game/ui.biwa` にある。ここにはコンストラクタと、
 // 木を辿って syscall を発行する `materialize` 相当の `show` を置く。
@@ -8,22 +8,33 @@ import package::option::Option;
 import package::option::Option::Some;
 import package::option::Option::None;
 import package::collections::Vec;
+import package::game::Scene;
 import package::game::base_engine::sys_ui_create;
+import package::game::base_engine::sys_ui_set_handler;
+import package::game::base_engine::sys_ui_set_property_with_string;
 import package::game::ui::Window;
 import package::game::ui::Page;
 import package::game::ui::element_kind_window;
 import package::game::ui::apply_id;
 import package::game::ui::property_kind_window_scene_page_id;
-import package::game::ui::set_optional_string_property;
+import package::game::ui::handler_kind_window_main_scene;
 
-impl Window {
-  // 子となる Page の列から Window を組み立てる。まだ syscall は発行しない。
-  fn new(pages: Vec[Page]) -> Self {
-    Self { pages = pages, id = None, scene_page_id = None }
+impl[S] Window[S] {
+  // Window を組み立てる。まだ syscall は発行しない。
+  //
+  // - `main_scene`: scene 本体。scene を映す Page に遷移すると始まる。
+  // - `scene_page_id`: scene を映す Page の page_id。その Page の `canvas` / `message_area` が
+  //   scene の出力先になる。
+  // - `pages`: 子となる Page の列。
+  //
+  // `main_scene` と `scene_page_id` はノベルゲームとして scene を始めるのに欠かせないので、
+  // ビルダーではなくここで必ず受け取る。
+  fn new(main_scene: Scene[S], scene_page_id: String, pages: Vec[Page[S]]) -> Self {
+    Self { pages = pages, id = None, main_scene = main_scene, scene_page_id = scene_page_id }
   }
 
   // Page を追加する。
-  fn push(self, page: Page) -> Self {
+  fn push(self, page: Page[S]) -> Self {
     self.pages.push(page);
     self
   }
@@ -34,37 +45,22 @@ impl Window {
     self
   }
 
-  // scene を映す Page の page_id。この Page に遷移すると scene が始まる (§14 S8)。
-  // その Page の `canvas` / `message_area` が scene の出力先になる。
-  fn scene_page_id(self, value: String) -> Self {
-    self.scene_page_id = Some(value);
-    self
-  }
-
-  // 木を辿って syscall を発行し、実際に画面へ出現させる。
+  // 木を辿って syscall を発行し、実際に画面へ出現させる。ゲーム側の `fn app()` から呼ぶ。
   // 最初に積まれた Page が既定で表示される (エンジン側の規則)。
   // Window は UiElement ではないため、この関数が Page 側の消費点でもある。
-  fn show(self) -> Uint {
+  fn show(self) {
     let id = sys_ui_create(element_kind_window());
     apply_id(id, self.id);
     // Page を積む前に設定する。最初の Page が積まれた時点で表示されるので、
     // それが scene の Page なら、その時点で分かっている必要がある。
-    set_optional_string_property(id, property_kind_window_scene_page_id(), self.scene_page_id);
+    // エンジンも、これらが無いまま Page を積まれたら止める。
+    sys_ui_set_property_with_string(id, property_kind_window_scene_page_id(), 0, 0, 0.0, self.scene_page_id);
+    // scene 本体はホストに預ける (`docs/host-function-values.md`)。
+    sys_ui_set_handler(id, handler_kind_window_main_scene(), self.main_scene);
     let i = 0;
     while i < self.pages.len() {
       self.pages.get(i).unwrap().materialize_into(id);
       i = i + 1;
     }
-    id
   }
-}
-
-// ランタイムが `app()` の返した `Window` を表示するための入口。
-//
-// ホストは Biwa のメソッドを直接呼べないので、`Window::show` をこの
-// トップレベル関数で包んで host export する (`GameWindow::new` の
-// `__biwa_std_game_window_new` と同じ理由)。返り値は root の ui_id。
-[[host_export="__biwa_std_window_show"]]
-fn window_show_for_host(window: Window) -> Uint {
-  window.show()
 }

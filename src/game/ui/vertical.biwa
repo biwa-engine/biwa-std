@@ -19,8 +19,8 @@ import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 import package::game::ui::push_children;
 
-impl Vertical {
-  fn new(children: Vec[UiElement]) -> Self {
+impl[S] Vertical[S] {
+  fn new(children: Vec[UiElement[S]]) -> Self {
     Self {
       children = children,
       id = None,
@@ -38,7 +38,7 @@ impl Vertical {
     }
   }
 
-  fn push(self, child: UiElement) -> Self {
+  fn push(self, child: UiElement[S]) -> Self {
     self.children.push(child);
     self
   }
@@ -125,8 +125,8 @@ impl Vertical {
   }
 }
 
-impl Vertical: Into[UiElement] {
-  fn into(self) -> UiElement {
+impl[S] Vertical[S]: Into[UiElement[S]] {
+  fn into(self) -> UiElement[S] {
     UiElement::Vertical(self)
   }
 }

@@ -26,8 +26,8 @@ import package::game::ui::property_kind_page_canvas;
 import package::game::ui::property_kind_page_message_area;
 import package::game::ui::set_optional_string_property;
 
-impl Page {
-  fn new(page_id: String, children: Vec[UiElement]) -> Self {
+impl[S] Page[S] {
+  fn new(page_id: String, children: Vec[UiElement[S]]) -> Self {
     Self {
       page_id = page_id,
       children = children,
@@ -38,7 +38,7 @@ impl Page {
     }
   }
 
-  fn push(self, child: UiElement) -> Self {
+  fn push(self, child: UiElement[S]) -> Self {
     self.children.push(child);
     self
   }

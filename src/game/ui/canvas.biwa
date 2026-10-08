@@ -18,7 +18,7 @@ import package::game::ui::element_kind_canvas;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 
-impl Canvas {
+impl[S] Canvas[S] {
   fn new() -> Self {
     Self {
       id = None,
@@ -117,8 +117,8 @@ impl Canvas {
   }
 }
 
-impl Canvas: Into[UiElement] {
-  fn into(self) -> UiElement {
+impl[S] Canvas[S]: Into[UiElement[S]] {
+  fn into(self) -> UiElement[S] {
     UiElement::Canvas(self)
   }
 }
