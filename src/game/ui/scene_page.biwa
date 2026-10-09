@@ -3,41 +3,46 @@
 // struct 定義は `game/ui.biwa` にある。`Window[S]` が 1 つだけ持ち (`Window::new` の引数)、
 // `SceneStartButton` が押されて scene が始まるときに表示される。Link では遷移できない。
 //
-// 子は Canvas (Canvas API の出力先) と MessageArea (Content API の出力先) を 1 つずつまで持てる
-// (どちらも省略可)。エンジンは Canvas を下、MessageArea を上に重ね、
-// それぞれ ScenePage の中にいるのと同じように配置する (`Layers` と同じ置き方)。
+// レイアウトは Page と同じく子 Element で自由に決める。scene の出力先 (Canvas / MessageArea) は
+// `new` で ID を必ず受け取り、実体は子孫として配置する。
 // 呼ばれるのは `Window::show` からだけを想定している。
 
 import package::string::String;
 import package::option::Option;
 import package::option::Option::Some;
 import package::option::Option::None;
+import package::collections::Vec;
 import package::game::color::Color;
 import package::game::base_engine::sys_ui_create;
-import package::game::base_engine::sys_ui_push_child;
+import package::game::base_engine::sys_ui_set_property;
 import package::game::ui::Background;
-import package::game::ui::Canvas;
-import package::game::ui::MessageArea;
+import package::game::ui::CanvasId;
+import package::game::ui::MessageAreaId;
 import package::game::ui::ScenePage;
+import package::game::ui::UiElement;
 import package::game::ui::element_kind_scene_page;
+import package::game::ui::property_kind_scene_page_canvas;
+import package::game::ui::property_kind_scene_page_message_area;
 import package::game::ui::apply_background;
 import package::game::ui::apply_id;
+import package::game::ui::push_children;
 
 impl[S] ScenePage[S] {
-  // Canvas も MessageArea も持たない ScenePage。`canvas` / `message_area` で足す。
-  fn new() -> Self {
-    Self { canvas = None, message_area = None, background = None, id = None }
+  // - `canvas` / `message_area`: scene の出力先 (`Canvas::canvas_id()` / `MessageArea::message_area_id()`)。
+  //   実体はこの ScenePage の子孫として `children` (か `push`) で配置すること。
+  // - `children`: Page と同じく、このページに置く Element の列。
+  fn new(canvas: CanvasId, message_area: MessageAreaId, children: Vec[UiElement[S]]) -> Self {
+    Self {
+      canvas = canvas,
+      message_area = message_area,
+      children = children,
+      background = None,
+      id = None,
+    }
   }
 
-  // scene の Canvas API の出力先。呼び直すと置き換わる。
-  fn canvas(self, value: Canvas[S]) -> Self {
-    self.canvas = Some(value);
-    self
-  }
-
-  // scene の Content API の出力先。呼び直すと置き換わる。
-  fn message_area(self, value: MessageArea[S]) -> Self {
-    self.message_area = Some(value);
+  fn push(self, child: UiElement[S]) -> Self {
+    self.children.push(child);
     self
   }
 
@@ -59,16 +64,15 @@ impl[S] ScenePage[S] {
   }
 
   // 木を辿って syscall を発行し、その ui_id を返す。Window に結びつけるのは `Window::show`。
+  // 出力先が子孫に置かれているかは、Window に結びつけた時点でエンジンが確かめる。
   fn materialize(self) -> Uint {
     let id = sys_ui_create(element_kind_scene_page());
     apply_id(id, self.id);
     apply_background(id, self.background);
-    if self.canvas.is_some() {
-      sys_ui_push_child(id, self.canvas.unwrap().materialize());
-    }
-    if self.message_area.is_some() {
-      sys_ui_push_child(id, self.message_area.unwrap().materialize());
-    }
+    sys_ui_set_property(id, property_kind_scene_page_canvas(), self.canvas.ui_id, 0, 0, 0, 0, 0, 0.0);
+    sys_ui_set_property(
+      id, property_kind_scene_page_message_area(), self.message_area.ui_id, 0, 0, 0, 0, 0, 0.0);
+    push_children(id, self.children);
     id
   }
 }

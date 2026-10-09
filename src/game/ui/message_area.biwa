@@ -15,13 +15,16 @@ import package::game::ui::UiElement;
 import package::game::ui::UiSize;
 import package::game::ui::Background;
 import package::game::ui::MessageArea;
+import package::game::ui::MessageAreaId;
 import package::game::ui::element_kind_message_area;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 
 impl[S] MessageArea[S] {
+  // この時点で UI Element を作る (`message_area_id()` のため)。どこにも繋がらず、property もまだ無い。
   fn new() -> Self {
     Self {
+      ui_id = sys_ui_create(element_kind_message_area()),
       id = None,
       width = None,
       height = None,
@@ -35,6 +38,11 @@ impl[S] MessageArea[S] {
       padding_bottom = None,
       background = None,
     }
+  }
+
+  // ScenePage に出力先として渡す ID。実体は別に ScenePage の子孫として配置する。
+  fn message_area_id(self) -> MessageAreaId {
+    MessageAreaId { ui_id = self.ui_id }
   }
 
   // すべての Element が持てる任意の識別子。
@@ -105,8 +113,10 @@ impl[S] MessageArea[S] {
   }
 
   // 木を辿って syscall を発行する。子を持てない。
+  // UI Element は `new()` で作ってあるので、property を設定するだけである。
+  // 同じ値を 2 か所に置くと同じ Element を 2 回積むことになり、エンジンが止める。
   fn materialize(self) -> Uint {
-    let id = sys_ui_create(element_kind_message_area());
+    let id = self.ui_id;
     apply_id(id, self.id);
     apply_layout_properties(
       id, self.width, self.height,

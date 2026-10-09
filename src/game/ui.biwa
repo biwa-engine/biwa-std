@@ -192,7 +192,7 @@ fn element_kind_canvas() -> Uint { 8 }
 fn element_kind_message_area() -> Uint { 9 }
 // 子を重ねる Element。push された順に上に積み上がる。
 fn element_kind_layers() -> Uint { 10 }
-// scene を映すページ。Window が 1 つだけ持ち、子に Canvas と MessageArea を 1 つずつまで持つ。
+// scene を映すページ。Window が 1 つだけ持ち、Page と同じく子を自由に持つ。
 fn element_kind_scene_page() -> Uint { 11 }
 // 押すと scene を始めるボタン。
 fn element_kind_scene_start_button() -> Uint { 12 }
@@ -223,6 +223,9 @@ fn property_kind_text_weight() -> Uint { 13 }
 fn property_kind_text_color() -> Uint { 14 }
 // Window の ScenePage。val_u1 に ScenePage の ui_id を積む。
 fn property_kind_window_scene_page() -> Uint { 15 }
+// ScenePage の出力先。val_u1 に Canvas / MessageArea の ui_id を積む。
+fn property_kind_scene_page_canvas() -> Uint { 16 }
+fn property_kind_scene_page_message_area() -> Uint { 17 }
 fn property_kind_page_id() -> Uint { 100 }
 fn property_kind_on_click_link() -> Uint { 101 }
 fn property_kind_text() -> Uint { 102 }
@@ -444,11 +447,15 @@ struct Page[S] {
 // scene を映すページ (`docs/ui-api.md` の改訂版)。Window が 1 つだけ持つ。
 //
 // Link では遷移できず、`SceneStartButton` が押されて scene が始まるときに表示される。
-// Canvas が scene の Canvas API の、MessageArea が Content API の出力先になる (どちらも省略可)。
-// エンジンは Canvas を下、MessageArea を上に重ねる。
+// レイアウトは Page と同じく子 Element で自由に決める。
+//
+// scene の出力先 (`canvas` の Canvas API と `message_area` の Content API) は必ず受け取る。
+// 受け取るのは配置ではなく ID で、実体 (`Canvas` / `MessageArea`) は子孫として自分で配置する。
+// 配置し忘れ・ScenePage の外への配置はエンジンが止める (型では担保できないため)。
 struct ScenePage[S] {
-  canvas: Option[Canvas[S]],
-  message_area: Option[MessageArea[S]],
+  canvas: CanvasId,
+  message_area: MessageAreaId,
+  children: Vec[UiElement[S]],
   background: Option[Background],
   id: Option[String],
 }
@@ -604,7 +611,11 @@ struct UiImage[S] {
 // Element として切り出しておくのは、複数キャンバスやミラーリングに備えるため
 // (`docs/ui-api.md`)。`Canvas` の名前はもともと `GameCanvas` が使っていたが、
 // UI Element の名前に譲った (§14)。
+//
+// 他の Element と違い、`Canvas::new()` の時点で UI Element を作る (`ui_id` を持つ)。
+// `canvas_id()` で ScenePage に出力先として渡すためである。property は他と同じく `materialize` で設定する。
 struct Canvas[S] {
+  ui_id: Uint,
   id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
@@ -622,7 +633,10 @@ struct Canvas[S] {
 // Content API (ノベル表現) の出力先になる Element。子は持てない。
 //
 // scene の生テキストや `$` の埋め込み式はここに出る。`GameMessageArea` がこの ui_id を持つ。
+//
+// `Canvas` と同じく、`MessageArea::new()` の時点で UI Element を作る (`message_area_id()` のため)。
 struct MessageArea[S] {
+  ui_id: Uint,
   id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
@@ -635,6 +649,20 @@ struct MessageArea[S] {
   padding_top: Option[UiSize],
   padding_bottom: Option[UiSize],
   background: Option[Background],
+}
+
+// `Canvas` の ID。ScenePage に scene の Canvas API の出力先として渡す (`Canvas::canvas_id()`)。
+//
+// 中身は ui_id だが、他の Element の ui_id と取り違えないよう包んである。
+// 描画の API を持つ `GameCanvas` (ゲームが始まってから使う出力先) とは役割で分けている。
+struct CanvasId {
+  ui_id: Uint,
+}
+
+// `MessageArea` の ID。ScenePage に scene の Content API の出力先として渡す
+// (`MessageArea::message_area_id()`)。`GameMessageArea` とは役割で分けている (`CanvasId` と同じ)。
+struct MessageAreaId {
+  ui_id: Uint,
 }
 
 // 子を重ねる Element (`docs/ui-api.md` の `Layers`)。
