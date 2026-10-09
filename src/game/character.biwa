@@ -21,8 +21,8 @@ import package::game::color::Alpha;
 impl[P] Character[P] {
   // **暫定**: `Game` を受け取るが、保持するのは出力先の束 (`GameWindow`) だけである
   // (`Character.window` のコメント参照)。
-  fn new[C, S](
-    game: Game[C, S],
+  fn new[S](
+    game: Game[S],
     name: String,
     display_name: String,
     props: P,

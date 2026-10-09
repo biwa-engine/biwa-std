@@ -19,7 +19,7 @@ import package::game::ui::property_kind_image;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 
-impl UiImage {
+impl[S] UiImage[S] {
   // `path` はパッケージの `assets/` を基準とした相対パス。
   fn new(path: String) -> Self {
     Self {
@@ -109,8 +109,8 @@ impl UiImage {
   }
 }
 
-impl UiImage: Into[UiElement] {
-  fn into(self) -> UiElement {
+impl[S] UiImage[S]: Into[UiElement[S]] {
+  fn into(self) -> UiElement[S] {
     UiElement::Image(self)
   }
 }

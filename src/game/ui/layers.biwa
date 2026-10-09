@@ -16,14 +16,14 @@ import package::game::ui::element_kind_layers;
 import package::game::ui::apply_id;
 import package::game::ui::push_children;
 
-impl Layers {
+impl[S] Layers[S] {
   // 先頭が一番下のレイヤーになる。
-  fn new(children: Vec[UiElement]) -> Self {
+  fn new(children: Vec[UiElement[S]]) -> Self {
     Self { children = children, id = None }
   }
 
   // 一番上にレイヤーを 1 枚足す。
-  fn push(self, child: UiElement) -> Self {
+  fn push(self, child: UiElement[S]) -> Self {
     self.children.push(child);
     self
   }
@@ -43,8 +43,8 @@ impl Layers {
   }
 }
 
-impl Layers: Into[UiElement] {
-  fn into(self) -> UiElement {
+impl[S] Layers[S]: Into[UiElement[S]] {
+  fn into(self) -> UiElement[S] {
     UiElement::Layers(self)
   }
 }

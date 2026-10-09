@@ -22,7 +22,7 @@ import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 import package::game::ui::apply_text_properties;
 
-impl Link {
+impl[S] Link[S] {
   // `on_click_link` は同じ Window 内の遷移先 page_id。
   fn new(on_click_link: String) -> Self {
     Self {
@@ -158,8 +158,8 @@ impl Link {
   }
 }
 
-impl Link: Into[UiElement] {
-  fn into(self) -> UiElement {
+impl[S] Link[S]: Into[UiElement[S]] {
+  fn into(self) -> UiElement[S] {
     UiElement::Link(self)
   }
 }

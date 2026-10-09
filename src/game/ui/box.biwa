@@ -21,7 +21,7 @@ import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_text_properties;
 import package::game::ui::apply_id;
 
-impl Box {
+impl[S] Box[S] {
   // 子もテキストも持たない Box。`child` / `text` で後から足す。
   fn new() -> Self {
     Self {
@@ -47,7 +47,7 @@ impl Box {
   }
 
   // 子を設定する。Box が持てる子は 1 つまでなので、呼び直すと置き換わる。
-  fn child(self, value: UiElement) -> Self {
+  fn child(self, value: UiElement[S]) -> Self {
     self.child = Some(value);
     self
   }
@@ -167,8 +167,8 @@ impl Box {
   }
 }
 
-impl Box: Into[UiElement] {
-  fn into(self) -> UiElement {
+impl[S] Box[S]: Into[UiElement[S]] {
+  fn into(self) -> UiElement[S] {
     UiElement::Box(self)
   }
 }

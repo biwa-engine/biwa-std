@@ -1,28 +1,36 @@
-// `Vertical` (子を垂直に並べる Layout Element) の impl。
+// `SceneStartButton` (押すと scene を始めるボタン) の impl。
 //
-// struct 定義は `game/ui.biwa` にある。
+// struct 定義は `game/ui.biwa` にある。見た目の property は `Link` と同じ。
+// 押されるとホストは `on_click` に `GameWindow` (Window の `ScenePage` の Canvas / MessageArea) を渡して
+// `Game[S]` を作らせ、ScenePage に遷移して Window の `main_scene` を始める
+// (`docs/ui-api.md` の改訂版、`docs/ui-api-impl-status.md` §19 R6)。
 
 import package::string::String;
 import package::option::Option;
 import package::option::Option::Some;
 import package::option::Option::None;
 import package::convert::Into;
-import package::collections::Vec;
+import package::game::Game;
 import package::game::color::Color;
 import package::game::base_engine::sys_ui_create;
+import package::game::base_engine::sys_ui_set_handler;
+import package::game::ui::GameWindow;
 import package::game::ui::UiElement;
 import package::game::ui::UiSize;
 import package::game::ui::Background;
-import package::game::ui::Vertical;
-import package::game::ui::element_kind_vertical;
+import package::game::ui::SceneStartButton;
+import package::game::ui::element_kind_scene_start_button;
+import package::game::ui::handler_kind_scene_start_button_on_click;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
-import package::game::ui::push_children;
+import package::game::ui::apply_text_properties;
 
-impl[S] Vertical[S] {
-  fn new(children: Vec[UiElement[S]]) -> Self {
+impl[S] SceneStartButton[S] {
+  // `on_click` は押されたときに呼ばれ、`GameWindow` (scene の出力先の束) から `Game[S]` を作る。
+  // 返った `Game[S]` で Window の `main_scene` が始まる。
+  fn new(on_click: fn(GameWindow) -> Game[S]) -> Self {
     Self {
-      children = children,
+      on_click = on_click,
       id = None,
       width = None,
       height = None,
@@ -35,12 +43,12 @@ impl[S] Vertical[S] {
       padding_top = None,
       padding_bottom = None,
       background = None,
+      text = None,
+      text_font = None,
+      text_size = None,
+      text_weight = None,
+      text_color = None,
     }
-  }
-
-  fn push(self, child: UiElement[S]) -> Self {
-    self.children.push(child);
-    self
   }
 
   // すべての Element が持てる任意の識別子。
@@ -110,9 +118,37 @@ impl[S] Vertical[S] {
     self
   }
 
-  // 木を辿って syscall を発行する。
+  // 表示する文字列。
+  fn text(self, value: String) -> Self {
+    self.text = Some(value);
+    self
+  }
+
+  // CSS の font-family としてそのまま使うフォント名。
+  fn text_font(self, value: String) -> Self {
+    self.text_font = Some(value);
+    self
+  }
+
+  fn text_size(self, value: UiSize) -> Self {
+    self.text_size = Some(value);
+    self
+  }
+
+  // 100〜900。
+  fn text_weight(self, value: Uint) -> Self {
+    self.text_weight = Some(value);
+    self
+  }
+
+  fn text_color(self, value: Color) -> Self {
+    self.text_color = Some(value);
+    self
+  }
+
+  // 木を辿って syscall を発行する。子を持てないため push_child は発行しない。
   fn materialize(self) -> Uint {
-    let id = sys_ui_create(element_kind_vertical());
+    let id = sys_ui_create(element_kind_scene_start_button());
     apply_id(id, self.id);
     apply_layout_properties(
       id, self.width, self.height,
@@ -120,13 +156,15 @@ impl[S] Vertical[S] {
       self.padding_left, self.padding_right, self.padding_top, self.padding_bottom,
       self.background,
     );
-    push_children(id, self.children);
+    apply_text_properties(id, self.text, self.text_font, self.text_size, self.text_weight, self.text_color);
+    // `on_click` はホストに預ける (`docs/host-function-values.md`)。
+    sys_ui_set_handler(id, handler_kind_scene_start_button_on_click(), self.on_click);
     id
   }
 }
 
-impl[S] Vertical[S]: Into[UiElement[S]] {
+impl[S] SceneStartButton[S]: Into[UiElement[S]] {
   fn into(self) -> UiElement[S] {
-    UiElement::Vertical(self)
+    UiElement::SceneStartButton(self)
   }
 }
