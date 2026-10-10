@@ -1,12 +1,12 @@
 mod base_engine;
-mod canvas;
-mod character;
-mod color;
-mod config;
-mod content;
-mod font;
-mod image;
-mod ui;
+pub mod canvas;
+pub mod character;
+pub mod color;
+pub mod config;
+pub mod content;
+pub mod font;
+pub mod image;
+pub mod ui;
 
 import package::string::String;
 import package::option::Option;
@@ -26,7 +26,7 @@ import config::Config;
 // 以前はキャラクターの束を別の型引数 `C` (`Game[C, S]`) で持っていたが廃止した。
 // キャラクターが要るなら `S` のメンバに持つか、scene の中で作る。
 [[lang="game"]]
-struct Game[S] {
+pub struct Game[S] {
   name: String, // ゲームの名前
   states: S,
   window: GameWindow,
@@ -43,12 +43,12 @@ struct Game[S] {
 // `scene foo(g: MyGame) -> MyGame {{ .. }}` は `Scene[MyGameState]` の値として渡せる
 // (例えば UI の `Window` の `main_scene` に。`docs/ui-api.md` の改訂版)。
 // wasm では scene は普通の関数である。TypeScript では generator function なので、まだ値にできない。
-type Scene[S] = fn(Game[S]) -> Game[S];
+pub type Scene[S] = fn(Game[S]) -> Game[S];
 
 impl[S] Game[S] {
   // `window` (出力先の束) はランタイムが組み立てて `SceneStartButton` の `on_click(window)` に渡したもの。
   // ゲーム側はそれをそのままここに渡す。
-  fn new(window: GameWindow, name: String, states: S, config: Config) -> Self {
+  pub fn new(window: GameWindow, name: String, states: S, config: Config) -> Self {
     Self {
       name = name,
       states = states,
@@ -62,8 +62,8 @@ impl[S] Game[S] {
   // `GameWindow` に Canvas が無い (ランタイムが渡さなかった) のに描こうとするのは
   // ゲーム側の構成の誤りなので、黙って捨てずに止める
   // (`Option::unwrap` → `abort`。Content API の `message_area_of` と同じ扱い)。
-  fn canvas(self) -> GameCanvas {
-    self.window.canvas.unwrap()
+  pub fn canvas(self) -> GameCanvas {
+    self.window.canvas().unwrap()
   }
 }
 
@@ -71,7 +71,7 @@ impl[S] Game[S] {
 // P: 個々のキャラクターが持つ特有のプロパティを格納するcustom properties
 //    ゲーム開発者が必要に応じて定義する
 [[lang="character"]]
-struct Character[P] {
+pub struct Character[P] {
   name: String,
   display_name: String,
   props: P,

@@ -9,19 +9,19 @@ import package::option::Option;
 import package::option::Option::Some;
 import package::option::Option::None;
 import package::convert::Into;
-import package::game::base_engine::sys_ui_create;
-import package::game::base_engine::sys_ui_set_property_with_string;
 import package::game::ui::UiElement;
 import package::game::ui::UiSize;
 import package::game::ui::UiImage;
-import package::game::ui::element_kind_image;
-import package::game::ui::property_kind_image;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
+import package::game::ui::UiId;
+import package::game::base_engine::ui_create;
+import package::game::ui::UiProperty;
+import package::game::base_engine::ui_set_property;
 
 impl[S] UiImage[S] {
   // `path` はパッケージの `assets/` を基準とした相対パス。
-  fn new(path: String) -> Self {
+  pub fn new(path: String) -> Self {
     Self {
       path = path,
       id = None,
@@ -39,64 +39,64 @@ impl[S] UiImage[S] {
   }
 
   // すべての Element が持てる任意の識別子。
-  fn id(self, value: String) -> Self {
+  pub fn id(self, value: String) -> Self {
     self.id = Some(value);
     self
   }
 
-  fn width(self, value: UiSize) -> Self {
+  pub fn width(self, value: UiSize) -> Self {
     self.width = Some(value);
     self
   }
 
-  fn height(self, value: UiSize) -> Self {
+  pub fn height(self, value: UiSize) -> Self {
     self.height = Some(value);
     self
   }
 
-  fn margin_left(self, value: UiSize) -> Self {
+  pub fn margin_left(self, value: UiSize) -> Self {
     self.margin_left = Some(value);
     self
   }
 
-  fn margin_right(self, value: UiSize) -> Self {
+  pub fn margin_right(self, value: UiSize) -> Self {
     self.margin_right = Some(value);
     self
   }
 
-  fn margin_top(self, value: UiSize) -> Self {
+  pub fn margin_top(self, value: UiSize) -> Self {
     self.margin_top = Some(value);
     self
   }
 
-  fn margin_bottom(self, value: UiSize) -> Self {
+  pub fn margin_bottom(self, value: UiSize) -> Self {
     self.margin_bottom = Some(value);
     self
   }
 
-  fn padding_left(self, value: UiSize) -> Self {
+  pub fn padding_left(self, value: UiSize) -> Self {
     self.padding_left = Some(value);
     self
   }
 
-  fn padding_right(self, value: UiSize) -> Self {
+  pub fn padding_right(self, value: UiSize) -> Self {
     self.padding_right = Some(value);
     self
   }
 
-  fn padding_top(self, value: UiSize) -> Self {
+  pub fn padding_top(self, value: UiSize) -> Self {
     self.padding_top = Some(value);
     self
   }
 
-  fn padding_bottom(self, value: UiSize) -> Self {
+  pub fn padding_bottom(self, value: UiSize) -> Self {
     self.padding_bottom = Some(value);
     self
   }
 
   // 木を辿って syscall を発行する。子を持てない。
-  fn materialize(self) -> Uint {
-    let id = sys_ui_create(element_kind_image());
+  pub(super) fn materialize(self) -> UiId {
+    let id = ui_create(self.into());
     apply_id(id, self.id);
     apply_layout_properties(
       id, self.width, self.height,
@@ -104,7 +104,7 @@ impl[S] UiImage[S] {
       self.padding_left, self.padding_right, self.padding_top, self.padding_bottom,
       None,
     );
-    sys_ui_set_property_with_string(id, property_kind_image(), 0, 0, 0.0, self.path);
+    ui_set_property(id, UiProperty::Image(self.path));
     id
   }
 }

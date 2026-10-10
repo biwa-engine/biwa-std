@@ -12,13 +12,17 @@ import package::game::canvas::CanvasObject;
 
 // まだエンジン上ではロード/描画されていない画像を表す構造体。
 // 描画したキャンバス上のオブジェクトとしては CanvasObject 構造体で表す。
-struct Image {
+pub struct Image {
   path: String,
 }
 
 impl Image {
-  fn new(path: String) -> Self {
+  pub fn new(path: String) -> Self {
     Self { path = path }
+  }
+
+  pub(super) fn path(self) -> String {
+    self.path
   }
 
   // キャンバス上に描画する。
@@ -31,7 +35,7 @@ impl Image {
   //
   // `w` / `h` の片方だけ Auto なら画像の縦横比を保つように、
   // 両方 Auto なら画像の元の大きさ (px) で、エンジンが決める。
-  fn show_in_canvas(
+  pub fn show_in_canvas(
     self, canvas: GameCanvas, layer: Uint, x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha,
   ) -> CanvasObject {
     CanvasObject::create(self, canvas, layer, x, y, w, h, alpha)

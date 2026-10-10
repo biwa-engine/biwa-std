@@ -13,25 +13,24 @@ import package::option::Option::Some;
 import package::option::Option::None;
 import package::collections::Vec;
 import package::game::color::Color;
-import package::game::base_engine::sys_ui_create;
-import package::game::base_engine::sys_ui_set_property;
 import package::game::ui::Background;
 import package::game::ui::CanvasId;
 import package::game::ui::MessageAreaId;
 import package::game::ui::ScenePage;
 import package::game::ui::UiElement;
-import package::game::ui::element_kind_scene_page;
-import package::game::ui::property_kind_scene_page_canvas;
-import package::game::ui::property_kind_scene_page_message_area;
 import package::game::ui::apply_background;
 import package::game::ui::apply_id;
 import package::game::ui::push_children;
+import package::game::ui::UiProperty;
+import package::game::ui::ScenePageId;
+import package::game::base_engine::ui_create_scene_page;
+import package::game::base_engine::ui_set_property;
 
 impl[S] ScenePage[S] {
   // - `canvas` / `message_area`: scene の出力先 (`Canvas::canvas_id()` / `MessageArea::message_area_id()`)。
   //   実体はこの ScenePage の子孫として `children` (か `push`) で配置すること。
   // - `children`: Page と同じく、このページに置く Element の列。
-  fn new(canvas: CanvasId, message_area: MessageAreaId, children: Vec[UiElement[S]]) -> Self {
+  pub fn new(canvas: CanvasId, message_area: MessageAreaId, children: Vec[UiElement[S]]) -> Self {
     Self {
       canvas = canvas,
       message_area = message_area,
@@ -41,38 +40,37 @@ impl[S] ScenePage[S] {
     }
   }
 
-  fn push(self, child: UiElement[S]) -> Self {
+  pub fn push(self, child: UiElement[S]) -> Self {
     self.children.push(child);
     self
   }
 
   // すべての Element が持てる任意の識別子。
-  fn id(self, value: String) -> Self {
+  pub fn id(self, value: String) -> Self {
     self.id = Some(value);
     self
   }
 
-  fn background_color(self, value: Color) -> Self {
+  pub fn background_color(self, value: Color) -> Self {
     self.background = Some(Background::Color(value));
     self
   }
 
   // `background_color` とは排他 (どちらか後に呼んだ方が勝つ)。
-  fn background_image(self, value: String) -> Self {
+  pub fn background_image(self, value: String) -> Self {
     self.background = Some(Background::Image(value));
     self
   }
 
-  // 木を辿って syscall を発行し、その ui_id を返す。Window に結びつけるのは `Window::show`。
+  // 木を辿って syscall を発行し、その ID を返す。Window に結びつけるのは `Window::show`。
   // 出力先が子孫に置かれているかは、Window に結びつけた時点でエンジンが確かめる。
-  fn materialize(self) -> Uint {
-    let id = sys_ui_create(element_kind_scene_page());
+  pub(super) fn materialize(self) -> ScenePageId {
+    let id = ui_create_scene_page();
     apply_id(id, self.id);
     apply_background(id, self.background);
-    sys_ui_set_property(id, property_kind_scene_page_canvas(), self.canvas.ui_id, 0, 0, 0, 0, 0, 0.0);
-    sys_ui_set_property(
-      id, property_kind_scene_page_message_area(), self.message_area.ui_id, 0, 0, 0, 0, 0, 0.0);
+    ui_set_property(id, UiProperty::ScenePageCanvas(self.canvas));
+    ui_set_property(id, UiProperty::ScenePageMessageArea(self.message_area));
     push_children(id, self.children);
-    id
+    ScenePageId::new(id)
   }
 }

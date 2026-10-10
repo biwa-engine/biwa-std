@@ -21,13 +21,11 @@ import package::game::Game;
 import package::game::Scene;
 import package::game::font::TextWeight;
 import package::game::color::Color;
-import package::game::base_engine::sys_content_push_text;
-import package::game::base_engine::sys_content_flush;
-import package::game::base_engine::sys_content_clear;
-import package::game::base_engine::sys_ui_create;
-import package::game::base_engine::sys_ui_set_property;
-import package::game::base_engine::sys_ui_set_property_with_string;
-import package::game::base_engine::sys_ui_push_child;
+import package::game::base_engine::content_push_text;
+import package::game::base_engine::content_flush;
+import package::game::base_engine::content_clear;
+import package::game::base_engine::ui_push_child;
+import package::game::base_engine::ui_set_property;
 import package::game::base_engine::wait;
 
 // --- ゲームの出力先の束 (canvas + message area) -------------------------------
@@ -44,7 +42,7 @@ import package::game::base_engine::wait;
 //
 // コンパイラはこの型を知らない (lang item ではない)。ランタイムとの取り決めは
 // host export の名前と引数 (ui_id 2 つ) だけである。
-struct GameWindow {
+pub struct GameWindow {
   // Canvas API の出力先。無ければ Canvas API は使えない。
   canvas: Option[GameCanvas],
   // Content API の出力先。無ければ Content API は使えない。
@@ -52,8 +50,8 @@ struct GameWindow {
 }
 
 impl GameWindow {
-  // 引数は出力先の UI Element (`Canvas` / `MessageArea`) の ui_id。
-  fn new(canvas: Option[Uint], message_area: Option[Uint]) -> Self {
+  // 引数は出力先の UI Element (`Canvas` / `MessageArea`)。
+  fn new(canvas: Option[UiId], message_area: Option[UiId]) -> Self {
     Self {
       canvas = match canvas {
         Some(id) => Some(GameCanvas { ui_id = id }),
@@ -69,8 +67,16 @@ impl GameWindow {
   // クリックが来るまでシーンを止める。
   //
   // クリックはどの出力先にも属さないので ui_id を取らない。
-  fn wait(self) {
+  pub(super) fn wait(self) {
     wait();
+  }
+
+  pub(super) fn canvas(self) -> Option[GameCanvas] {
+    self.canvas
+  }
+
+  pub(super) fn message_area(self) -> Option[GameMessageArea] {
+    self.message_area
   }
 
   // fn width(self) -> Uint;
@@ -91,28 +97,32 @@ fn game_window_new_for_host(canvas_id: Uint, message_area_id: Uint) -> GameWindo
 }
 
 // ホストから来た ui_id の 0 を「無し」に読み替える。
-fn ui_id_or_none(id: Uint) -> Option[Uint] {
+fn ui_id_or_none(id: Uint) -> Option[UiId] {
   if id == 0 {
     None
   } else {
-    Some(id)
+    Some(UiId::new(id))
   }
 }
 
 // Canvas API の出力先。UI Element `Canvas` の ui_id を持つだけの薄い struct。
-struct GameCanvas {
-  ui_id: Uint,
+pub struct GameCanvas {
+  ui_id: UiId,
 }
 
 impl GameCanvas {
   // fn create_image(self, image: Image, x: Int, y: Int, width: Option[Uint], height: Option[Uint]);
+
+  pub(super) fn ui_id(self) -> UiId {
+    self.ui_id
+  }
 }
 
 // Content API の出力先。UI Element `MessageArea` の ui_id を持つだけの薄い struct。
 //
 // syscall には出力先としてこの ui_id を第一引数で渡す。
-struct GameMessageArea {
-  ui_id: Uint,
+pub(super) struct GameMessageArea {
+  ui_id: UiId,
 }
 
 impl GameMessageArea {
@@ -122,35 +132,25 @@ impl GameMessageArea {
   // ここに渡す形にするのは `std::game::content` の仕事で、
   // ここは設定を知らない。
   //
-  // `Size` は enum なので、syscall には (単位, 値) の 2 つに割って渡す。
-  fn push_text(self, text: String, speed: Float, size: Size, weight: TextWeight, color: Color) {
-    match size {
-      Size::Vw(v) => {
-        sys_content_push_text(
-          self.ui_id, text, speed, 0, v, weight.weight, color.r, color.g, color.b, color.a);
-      }
-      Size::Vh(v) => {
-        sys_content_push_text(
-          self.ui_id, text, speed, 1, v, weight.weight, color.r, color.g, color.b, color.a);
-      }
-    }
+  pub(super) fn push_text(self, text: String, speed: Float, size: Size, weight: TextWeight, color: Color) {
+    content_push_text(self.ui_id, text, speed, size, weight, color);
   }
 
   // 積まれたものをまとめて出し始める。
-  fn flush(self) {
-    sys_content_flush(self.ui_id);
+  pub(super) fn flush(self) {
+    content_flush(self.ui_id);
   }
 
   // 枠を空にする。呼ぶ時機を決めるのは std であってエンジンではない。
-  fn clear(self) {
-    sys_content_clear(self.ui_id);
+  pub(super) fn clear(self) {
+    content_clear(self.ui_id);
   }
 
   // fn set_talker_name(self, name: String);
   // fn set_talker_image(self, image: Image);
 }
 
-enum Size {
+pub(super) enum Size {
   // All of these `Float` value must be positive.
   Vw(Float), // 100.0 means 100 % of viewport width.
   Vh(Float), // 100.0 means 100 % of viewport height.
@@ -161,7 +161,7 @@ enum Size {
 }
 
 impl Size {
-  fn mul(self, mul: Float) -> Self {
+  pub(super) fn mul(self, mul: Float) -> Self {
     match self {
       Size::Vw(vw) => Size::Vw(vw * mul),
       Size::Vh(vh) => Size::Vh(vh * mul),
@@ -187,83 +187,52 @@ impl Size {
 // 型で表すためで、`docs/ui-api.md` の XML-based Syntax 節が
 // `UiElement` と `UiPage` (= ここでの `Page`) を別の型として扱っているのに合わせた。
 
-// 各 Element の kind 番号。エンジンとの取り決めで、一覧は
-// engine の `src/engine/api/ui.ts` の `ElementKind` にある。
-fn element_kind_window() -> Uint { 0 }
-fn element_kind_page() -> Uint { 1 }
-fn element_kind_box() -> Uint { 2 }
-fn element_kind_link() -> Uint { 3 }
-fn element_kind_horizontal() -> Uint { 4 }
-fn element_kind_vertical() -> Uint { 5 }
-fn element_kind_horizontal_grid() -> Uint { 6 }
-// std 側の型名は `UiImage` (`std::game::image::Image` との衝突を避けるため)。
-fn element_kind_image() -> Uint { 7 }
-// ゲームの出力先になる Element。`GameWindow` (`GameCanvas` / `GameMessageArea`) は
-// これらの ui_id を持ち、Canvas API / Content API はその ui_id で出力先を指定する。
-fn element_kind_canvas() -> Uint { 8 }
-fn element_kind_message_area() -> Uint { 9 }
-// 子を重ねる Element。push された順に上に積み上がる。
-fn element_kind_layers() -> Uint { 10 }
-// scene を映すページ。Window が 1 つだけ持ち、Page と同じく子を自由に持つ。
-fn element_kind_scene_page() -> Uint { 11 }
-// 押すと scene を始めるボタン。
-fn element_kind_scene_start_button() -> Uint { 12 }
-// Button はまだ割り当てない (`docs/ui-api.md`)。
+// UI Element の property。番号と値の詰め方 (エンジンとの ABI) は `base_engine::ui_set_property` が持つ。
+pub(super) enum UiProperty {
+  Width(UiSize),
+  Height(UiSize),
+  MarginLeft(UiSize),
+  MarginRight(UiSize),
+  MarginTop(UiSize),
+  MarginBottom(UiSize),
+  PaddingLeft(UiSize),
+  PaddingRight(UiSize),
+  PaddingTop(UiSize),
+  PaddingBottom(UiSize),
+  BackgroundColor(Color),
+  Column(Uint),
+  TextSize(UiSize),
+  TextWeight(Uint),
+  TextColor(Color),
+  WindowScenePage(ScenePageId),
+  ScenePageCanvas(CanvasId),
+  ScenePageMessageArea(MessageAreaId),
+  PageId(String),
+  OnClickLink(String),
+  Text(String),
+  TextFont(String),
+  BackgroundImage(String),
+  Image(String),
+  Id(String),
+}
 
-// ハンドラ (ホストが後で呼ぶ関数) の kind 番号。engine の `api/ui.ts` の `HandlerKind` と一致させる。
-// 規定は `docs/host-function-values.md`。
-// Window の `main_scene` (`Scene[S]`)。
-fn handler_kind_window_main_scene() -> Uint { 0 }
-// SceneStartButton の `on_click` (`fn(GameWindow) -> Game[S]`)。
-fn handler_kind_scene_start_button_on_click() -> Uint { 1 }
-
-// property の kind 番号。engine の `api/ui.ts` の `PropertyKind` と一致させる。
-fn property_kind_width() -> Uint { 0 }
-fn property_kind_height() -> Uint { 1 }
-fn property_kind_margin_left() -> Uint { 2 }
-fn property_kind_margin_right() -> Uint { 3 }
-fn property_kind_margin_top() -> Uint { 4 }
-fn property_kind_margin_bottom() -> Uint { 5 }
-fn property_kind_padding_left() -> Uint { 6 }
-fn property_kind_padding_right() -> Uint { 7 }
-fn property_kind_padding_top() -> Uint { 8 }
-fn property_kind_padding_bottom() -> Uint { 9 }
-fn property_kind_background_color() -> Uint { 10 }
-fn property_kind_column() -> Uint { 11 }
-fn property_kind_text_size() -> Uint { 12 }
-fn property_kind_text_weight() -> Uint { 13 }
-fn property_kind_text_color() -> Uint { 14 }
-// Window の ScenePage。val_u1 に ScenePage の ui_id を積む。
-fn property_kind_window_scene_page() -> Uint { 15 }
-// ScenePage の出力先。val_u1 に Canvas / MessageArea の ui_id を積む。
-fn property_kind_scene_page_canvas() -> Uint { 16 }
-fn property_kind_scene_page_message_area() -> Uint { 17 }
-fn property_kind_page_id() -> Uint { 100 }
-fn property_kind_on_click_link() -> Uint { 101 }
-fn property_kind_text() -> Uint { 102 }
-fn property_kind_text_font() -> Uint { 103 }
-fn property_kind_background_image() -> Uint { 104 }
-fn property_kind_image() -> Uint { 105 }
-// すべての Element が持てる任意の識別子。
-fn property_kind_id() -> Uint { 106 }
-// 107〜109 は欠番 (以前は文字列の id で scene の出力先と Page を指していた。今は ScenePage)。
-
-// width / height / margin / padding が取れる単位。engine の `Unit` と一致させる。
-fn ui_unit_vw() -> Uint { 0 }
-fn ui_unit_vh() -> Uint { 1 }
-fn ui_unit_percent() -> Uint { 2 }
+// UI Element のハンドラ (ホストが後で呼ぶ関数)。番号は `base_engine::ui_set_handler` が持つ。
+pub(super) enum UiEventHandler[S] {
+  WindowMainScene(Scene[S]),
+  SceneStartButtonOnClick(fn(GameWindow) -> Game[S]),
+}
 
 // UI のレイアウトで使う大きさ。Message Window の `Size` (vw/vh のみ) と違い、
 // 親要素に対する割合 (`percent`) も持つので、あえて別の型にしてある。
-enum UiSize {
+pub enum UiSize {
   Vw(Float),
   Vh(Float),
   Percent(Float),
 }
 
-fn vw(value: Float) -> UiSize { UiSize::Vw(value) }
-fn vh(value: Float) -> UiSize { UiSize::Vh(value) }
-fn percent(value: Float) -> UiSize { UiSize::Percent(value) }
+pub fn vw(value: Float) -> UiSize { UiSize::Vw(value) }
+pub fn vh(value: Float) -> UiSize { UiSize::Vh(value) }
+pub fn percent(value: Float) -> UiSize { UiSize::Percent(value) }
 
 // `background_color` と `background_image` は排他である (`docs/ui-api.md`)。
 // 2 つの `Option` を別々に持たせると両方設定できてしまうので、
@@ -273,54 +242,37 @@ enum Background {
   Image(String),
 }
 
-// `Option[UiSize]` を数値 property として発行する。未設定 (`None`) なら何もしない。
-//
-// パターンを入れ子にできない制限 (`docs/std-api.md`) があるため、
-// `Option` と `UiSize` を 2 段階に分けて match する。
-fn set_size_property(id: Uint, kind: Uint, size: Option[UiSize]) {
-  if size.is_some() {
-    match size.unwrap() {
-      UiSize::Vw(v) => { sys_ui_set_property(id, kind, ui_unit_vw(), 0, 0, 0, 0, 0, v); }
-      UiSize::Vh(v) => { sys_ui_set_property(id, kind, ui_unit_vh(), 0, 0, 0, 0, 0, v); }
-      UiSize::Percent(v) => { sys_ui_set_property(id, kind, ui_unit_percent(), 0, 0, 0, 0, 0, v); }
-    }
+// `Option[Background]` を数値または文字列 property として発行する。
+// 未設定 (`None`) なら何もしない。
+fn apply_background(id: UiId, background: Option[Background]) {
+  match background {
+    Some(background) => { ui_set_property(id, background.as_property()); }
+    None => {}
   }
 }
 
-// `Option[Background]` を数値または文字列 property として発行する。
-// 未設定 (`None`) なら何もしない。
-fn apply_background(id: Uint, background: Option[Background]) {
-  if background.is_some() {
-    match background.unwrap() {
-      Background::Color(c) => {
-        sys_ui_set_property(id, property_kind_background_color(), c.r, c.g, c.b, c.a, 0, 0, 0.0);
-      }
-      Background::Image(path) => {
-        sys_ui_set_property_with_string(id, property_kind_background_image(), 0, 0, 0.0, path);
-      }
+impl Background {
+  fn as_property(self) -> UiProperty {
+    match self {
+      Background::Color(c) => UiProperty::BackgroundColor(c),
+      Background::Image(image) => UiProperty::BackgroundImage(image),
     }
   }
 }
 
 // すべての Element に共通する `id` property を発行する。未設定 (`None`) なら何もしない。
 // エンジン側はこの文字列から ui_id を逆引きできる (Page の `canvas`/`message_area` 等で使う)。
-fn apply_id(id: Uint, name: Option[String]) {
-  if name.is_some() {
-    sys_ui_set_property_with_string(id, property_kind_id(), 0, 0, 0.0, name.unwrap());
-  }
-}
-
-// `Option[String]` を文字列 property として発行する。未設定 (`None`) なら何もしない。
-fn set_optional_string_property(id: Uint, kind: Uint, value: Option[String]) {
-  if value.is_some() {
-    sys_ui_set_property_with_string(id, kind, 0, 0, 0.0, value.unwrap());
+fn apply_id(id: UiId, name: Option[String]) {
+  match name {
+    Some(name) => { ui_set_property(id, UiProperty::Id(name)); }
+    None => {}
   }
 }
 
 // Box / Link / Horizontal / Vertical / HorizontalGrid に共通するレイアウト系
 // property をまとめて発行する。property を増やすときはここ 1 箇所を触ればよい。
 fn apply_layout_properties(
-  id: Uint,
+  id: UiId,
   width: Option[UiSize],
   height: Option[UiSize],
   margin_left: Option[UiSize],
@@ -333,52 +285,64 @@ fn apply_layout_properties(
   padding_bottom: Option[UiSize],
   background: Option[Background],
 ) {
-  set_size_property(id, property_kind_width(), width);
-  set_size_property(id, property_kind_height(), height);
-  set_size_property(id, property_kind_margin_left(), margin_left);
-  set_size_property(id, property_kind_margin_right(), margin_right);
-  set_size_property(id, property_kind_margin_top(), margin_top);
-  set_size_property(id, property_kind_margin_bottom(), margin_bottom);
-  set_size_property(id, property_kind_padding_left(), padding_left);
-  set_size_property(id, property_kind_padding_right(), padding_right);
-  set_size_property(id, property_kind_padding_top(), padding_top);
-  set_size_property(id, property_kind_padding_bottom(), padding_bottom);
+  apply_size(id, width, fn(v) { UiProperty::Width(v) });
+  apply_size(id, height, fn(v) { UiProperty::Height(v) });
+  apply_size(id, margin_left, fn(v) { UiProperty::MarginLeft(v) });
+  apply_size(id, margin_right, fn(v) { UiProperty::MarginRight(v) });
+  apply_size(id, margin_top, fn(v) { UiProperty::MarginTop(v) });
+  apply_size(id, margin_bottom, fn(v) { UiProperty::MarginBottom(v) });
+  apply_size(id, padding_left, fn(v) { UiProperty::PaddingLeft(v) });
+  apply_size(id, padding_right, fn(v) { UiProperty::PaddingRight(v) });
+  apply_size(id, padding_top, fn(v) { UiProperty::PaddingTop(v) });
+  apply_size(id, padding_bottom, fn(v) { UiProperty::PaddingBottom(v) });
   apply_background(id, background);
+}
+
+// 大きさの property を 1 つ発行する。未設定 (`None`) なら何もしない。
+// `prop` は値からその property を作る関数 (`fn(v) { UiProperty::Width(v) }` など)。
+fn apply_size(id: UiId, size: Option[UiSize], prop: fn(UiSize) -> UiProperty) {
+  match size {
+    Some(size) => { ui_set_property(id, prop(size)); }
+    None => {}
+  }
 }
 
 // テキストとその装飾 property をまとめて発行する。
 // テキストを持てるのは Link と Box である。
 fn apply_text_properties(
-  id: Uint,
+  id: UiId,
   text: Option[String],
   text_font: Option[String],
   text_size: Option[UiSize],
   text_weight: Option[Uint],
   text_color: Option[Color],
 ) {
-  if text.is_some() {
-    sys_ui_set_property_with_string(id, property_kind_text(), 0, 0, 0.0, text.unwrap());
+  match text {
+    Some(text) => { ui_set_property(id, UiProperty::Text(text)); }
+    None => {}
   }
-  if text_font.is_some() {
-    sys_ui_set_property_with_string(id, property_kind_text_font(), 0, 0, 0.0, text_font.unwrap());
+  match text_font {
+    Some(text_font) => { ui_set_property(id, UiProperty::TextFont(text_font)); }
+    None => {}
   }
-  set_size_property(id, property_kind_text_size(), text_size);
-  if text_weight.is_some() {
-    sys_ui_set_property(id, property_kind_text_weight(), text_weight.unwrap(), 0, 0, 0, 0, 0, 0.0);
+  apply_size(id, text_size, fn(v) { UiProperty::TextSize(v) });
+  match text_weight {
+    Some(text_weight) => { ui_set_property(id, UiProperty::TextWeight(text_weight)); }
+    None => {}
   }
-  if text_color.is_some() {
-    let c = text_color.unwrap();
-    sys_ui_set_property(id, property_kind_text_color(), c.r, c.g, c.b, c.a, 0, 0, 0.0);
+  match text_color {
+    Some(text_color) => { ui_set_property(id, UiProperty::TextColor(text_color)); }
+    None => {}
   }
 }
 
 // 子要素をまとめて materialize し、親に積む。
 // Horizontal / Vertical / HorizontalGrid / Page で共通する。
-fn push_children[S](parent_id: Uint, children: Vec[UiElement[S]]) {
+fn push_children[S](parent_id: UiId, children: Vec[UiElement[S]]) {
   let i = 0;
   while i < children.len() {
     let child_id = children.get(i).unwrap().materialize();
-    sys_ui_push_child(parent_id, child_id);
+    ui_push_child(parent_id, child_id);
     i = i + 1;
   }
 }
@@ -387,7 +351,7 @@ fn push_children[S](parent_id: Uint, children: Vec[UiElement[S]]) {
 //
 // syscall はここでは発行しない。`materialize()` が唯一の消費点であり、
 // 木を再帰的に辿って初めて `sys_ui_*` を発行する。
-enum UiElement[S] {
+pub enum UiElement[S] {
   Box(Box[S]),
   Link(Link[S]),
   Horizontal(Horizontal[S]),
@@ -403,7 +367,7 @@ enum UiElement[S] {
 impl[S] UiElement[S] {
   // 木を辿って syscall を発行し、実際に UI Element として出現させる。
   // enum の variant で分岐するのはここ 1 箇所だけである。
-  fn materialize(self) -> Uint {
+  pub(super) fn materialize(self) -> UiId {
     match self {
       UiElement::Box(el) => el.materialize(),
       UiElement::Link(el) => el.materialize(),
@@ -439,7 +403,7 @@ impl[S] UiElement[S] {
 //
 // ゲーム側の `fn main()` (エントリポイント) がこれを組み立てて `show()` する。
 [[lang="ui_window"]]
-struct Window[S] {
+pub struct Window[S] {
   pages: Vec[Page[S]],
   id: Option[String],
   // scene 本体。`SceneStartButton` が押されると、その `on_click` が作った `Game[S]` でこれが始まる。
@@ -449,7 +413,7 @@ struct Window[S] {
 }
 
 // ページ。Window の子として、page_id で区別され、Link で遷移できる。
-struct Page[S] {
+pub struct Page[S] {
   page_id: String,
   children: Vec[UiElement[S]],
   background: Option[Background],
@@ -464,7 +428,7 @@ struct Page[S] {
 // scene の出力先 (`canvas` の Canvas API と `message_area` の Content API) は必ず受け取る。
 // 受け取るのは配置ではなく ID で、実体 (`Canvas` / `MessageArea`) は子孫として自分で配置する。
 // 配置し忘れ・ScenePage の外への配置はエンジンが止める (型では担保できないため)。
-struct ScenePage[S] {
+pub struct ScenePage[S] {
   canvas: CanvasId,
   message_area: MessageAreaId,
   children: Vec[UiElement[S]],
@@ -474,7 +438,7 @@ struct ScenePage[S] {
 
 // 領域を区切る最も基本的な Element。子を 1 つまで持てる (無くてもよい)。
 // テキストも持てる (子と両方持つときはテキストが先に並ぶ)。
-struct Box[S] {
+pub struct Box[S] {
   child: Option[UiElement[S]],
   id: Option[String],
   width: Option[UiSize],
@@ -499,7 +463,7 @@ struct Box[S] {
 //
 // 押されるとホストは `on_click` に `GameWindow` (Window の ScenePage の出力先) を渡して `Game[S]` を作らせ、
 // ScenePage を表示してから、その `Game[S]` で Window の `main_scene` を始める。
-struct SceneStartButton[S] {
+pub struct SceneStartButton[S] {
   on_click: fn(GameWindow) -> Game[S],
   id: Option[String],
   width: Option[UiSize],
@@ -522,7 +486,7 @@ struct SceneStartButton[S] {
 
 // リンク。クリックすると同じ Window 内の、指定した page_id を持つ Page に遷移する。
 // 子は持てない。テキストを持てる。
-struct Link[S] {
+pub struct Link[S] {
   on_click_link: String,
   id: Option[String],
   width: Option[UiSize],
@@ -544,7 +508,7 @@ struct Link[S] {
 }
 
 // 子を水平に並べる Layout Element。
-struct Horizontal[S] {
+pub struct Horizontal[S] {
   children: Vec[UiElement[S]],
   id: Option[String],
   width: Option[UiSize],
@@ -561,7 +525,7 @@ struct Horizontal[S] {
 }
 
 // 子を垂直に並べる Layout Element。
-struct Vertical[S] {
+pub struct Vertical[S] {
   children: Vec[UiElement[S]],
   id: Option[String],
   width: Option[UiSize],
@@ -578,7 +542,7 @@ struct Vertical[S] {
 }
 
 // `column` 本の列に並べ、折り返す Layout Element。
-struct HorizontalGrid[S] {
+pub struct HorizontalGrid[S] {
   children: Vec[UiElement[S]],
   id: Option[String],
   column: Uint,
@@ -602,7 +566,7 @@ struct HorizontalGrid[S] {
 // 同じファイルは元より、同じスコープに両方 import すると名前が衝突する
 // (Biwa には import のエイリアスが無い)。エンジン側の kind 番号には
 // 影響しない、std 側だけの命名判断である。
-struct UiImage[S] {
+pub struct UiImage[S] {
   path: String,
   id: Option[String],
   width: Option[UiSize],
@@ -626,8 +590,8 @@ struct UiImage[S] {
 //
 // 他の Element と違い、`Canvas::new()` の時点で UI Element を作る (`ui_id` を持つ)。
 // `canvas_id()` で ScenePage に出力先として渡すためである。property は他と同じく `materialize` で設定する。
-struct Canvas[S] {
-  ui_id: Uint,
+pub struct Canvas[S] {
+  ui_id: UiId,
   id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
@@ -647,8 +611,8 @@ struct Canvas[S] {
 // scene の生テキストや `$` の埋め込み式はここに出る。`GameMessageArea` がこの ui_id を持つ。
 //
 // `Canvas` と同じく、`MessageArea::new()` の時点で UI Element を作る (`message_area_id()` のため)。
-struct MessageArea[S] {
-  ui_id: Uint,
+pub struct MessageArea[S] {
+  ui_id: UiId,
   id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
@@ -663,18 +627,69 @@ struct MessageArea[S] {
   background: Option[Background],
 }
 
+// UI Element の id (エンジンが振る ui_id)。素の `Uint` と取り違えないよう包んである。
+// 中身を取り出すのはエンジンとの境界 (`base_engine`) だけである。
+pub(super) struct UiId {
+  value: Uint,
+}
+
+impl UiId {
+  pub(super) fn new(value: Uint) -> Self {
+    Self { value = value }
+  }
+  
+  pub(super) fn as_raw(self) -> Uint {
+    self.value
+  }
+}
+
+// `ScenePage` の ID。Window に scene を映すページとして結びつける (`UiProperty::WindowScenePage`)。
+pub struct ScenePageId {
+  ui_id: UiId,
+}
+
+impl ScenePageId {
+  pub(super) fn new(ui_id: UiId) -> Self {
+    Self { ui_id = ui_id }
+  }
+
+  pub(super) fn as_raw(self) -> Uint {
+    self.ui_id.as_raw()
+  }
+}
+
 // `Canvas` の ID。ScenePage に scene の Canvas API の出力先として渡す (`Canvas::canvas_id()`)。
 //
 // 中身は ui_id だが、他の Element の ui_id と取り違えないよう包んである。
 // 描画の API を持つ `GameCanvas` (ゲームが始まってから使う出力先) とは役割で分けている。
-struct CanvasId {
-  ui_id: Uint,
+pub struct CanvasId {
+  ui_id: UiId,
+}
+
+impl CanvasId {
+  pub(super) fn new(ui_id: UiId) -> Self {
+    Self { ui_id = ui_id }
+  }
+
+  pub(super) fn as_raw(self) -> Uint {
+    self.ui_id.as_raw()
+  }
 }
 
 // `MessageArea` の ID。ScenePage に scene の Content API の出力先として渡す
 // (`MessageArea::message_area_id()`)。`GameMessageArea` とは役割で分けている (`CanvasId` と同じ)。
-struct MessageAreaId {
-  ui_id: Uint,
+pub struct MessageAreaId {
+  ui_id: UiId,
+}
+
+impl MessageAreaId {
+  pub(super) fn new(ui_id: UiId) -> Self {
+    Self { ui_id = ui_id }
+  }
+
+  pub(super) fn as_raw(self) -> Uint {
+    self.ui_id.as_raw()
+  }
 }
 
 // 子を重ねる Element (`docs/ui-api.md` の `Layers`)。
@@ -683,7 +698,7 @@ struct MessageAreaId {
 // 互いに干渉しない。前後は push された順で決まり、**後から push したものほど上**になる
 // (`Layers::new(Vec::of(下)).push(上)`)。背景の Canvas の上にメッセージ枠を重ねる、
 // といった用途に使う。
-struct Layers[S] {
+pub struct Layers[S] {
   children: Vec[UiElement[S]],
   id: Option[String],
 }

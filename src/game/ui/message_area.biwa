@@ -10,21 +10,21 @@ import package::option::Option::Some;
 import package::option::Option::None;
 import package::convert::Into;
 import package::game::color::Color;
-import package::game::base_engine::sys_ui_create;
 import package::game::ui::UiElement;
 import package::game::ui::UiSize;
 import package::game::ui::Background;
 import package::game::ui::MessageArea;
 import package::game::ui::MessageAreaId;
-import package::game::ui::element_kind_message_area;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
+import package::game::ui::UiId;
+import package::game::base_engine::ui_create_message_area;
 
 impl[S] MessageArea[S] {
   // この時点で UI Element を作る (`message_area_id()` のため)。どこにも繋がらず、property もまだ無い。
-  fn new() -> Self {
+  pub fn new() -> Self {
     Self {
-      ui_id = sys_ui_create(element_kind_message_area()),
+      ui_id = ui_create_message_area(),
       id = None,
       width = None,
       height = None,
@@ -41,73 +41,73 @@ impl[S] MessageArea[S] {
   }
 
   // ScenePage に出力先として渡す ID。実体は別に ScenePage の子孫として配置する。
-  fn message_area_id(self) -> MessageAreaId {
-    MessageAreaId { ui_id = self.ui_id }
+  pub fn message_area_id(self) -> MessageAreaId {
+    MessageAreaId::new(self.ui_id)
   }
 
   // すべての Element が持てる任意の識別子。
-  fn id(self, value: String) -> Self {
+  pub fn id(self, value: String) -> Self {
     self.id = Some(value);
     self
   }
 
-  fn width(self, value: UiSize) -> Self {
+  pub fn width(self, value: UiSize) -> Self {
     self.width = Some(value);
     self
   }
 
-  fn height(self, value: UiSize) -> Self {
+  pub fn height(self, value: UiSize) -> Self {
     self.height = Some(value);
     self
   }
 
-  fn margin_left(self, value: UiSize) -> Self {
+  pub fn margin_left(self, value: UiSize) -> Self {
     self.margin_left = Some(value);
     self
   }
 
-  fn margin_right(self, value: UiSize) -> Self {
+  pub fn margin_right(self, value: UiSize) -> Self {
     self.margin_right = Some(value);
     self
   }
 
-  fn margin_top(self, value: UiSize) -> Self {
+  pub fn margin_top(self, value: UiSize) -> Self {
     self.margin_top = Some(value);
     self
   }
 
-  fn margin_bottom(self, value: UiSize) -> Self {
+  pub fn margin_bottom(self, value: UiSize) -> Self {
     self.margin_bottom = Some(value);
     self
   }
 
-  fn padding_left(self, value: UiSize) -> Self {
+  pub fn padding_left(self, value: UiSize) -> Self {
     self.padding_left = Some(value);
     self
   }
 
-  fn padding_right(self, value: UiSize) -> Self {
+  pub fn padding_right(self, value: UiSize) -> Self {
     self.padding_right = Some(value);
     self
   }
 
-  fn padding_top(self, value: UiSize) -> Self {
+  pub fn padding_top(self, value: UiSize) -> Self {
     self.padding_top = Some(value);
     self
   }
 
-  fn padding_bottom(self, value: UiSize) -> Self {
+  pub fn padding_bottom(self, value: UiSize) -> Self {
     self.padding_bottom = Some(value);
     self
   }
 
-  fn background_color(self, value: Color) -> Self {
+  pub fn background_color(self, value: Color) -> Self {
     self.background = Some(Background::Color(value));
     self
   }
 
   // `background_color` とは排他 (どちらか後に呼んだ方が勝つ)。
-  fn background_image(self, value: String) -> Self {
+  pub fn background_image(self, value: String) -> Self {
     self.background = Some(Background::Image(value));
     self
   }
@@ -115,7 +115,7 @@ impl[S] MessageArea[S] {
   // 木を辿って syscall を発行する。子を持てない。
   // UI Element は `new()` で作ってあるので、property を設定するだけである。
   // 同じ値を 2 か所に置くと同じ Element を 2 回積むことになり、エンジンが止める。
-  fn materialize(self) -> Uint {
+  pub(super) fn materialize(self) -> UiId {
     let id = self.ui_id;
     apply_id(id, self.id);
     apply_layout_properties(
