@@ -1,9 +1,3 @@
-// `UiImage` (画像を表示する Element) の impl。
-//
-// struct 定義は `game/ui.biwa` にある。std 上の型名が `Image` ではなく
-// `UiImage` なのは、`std::game::image::Image` (canvas に置く画像) との
-// 名前の衝突を避けるためである (`game/ui.biwa` の `UiImage` のコメント参照)。
-
 import package::string::String;
 import package::option::Option;
 import package::option::Option::Some;
@@ -11,13 +5,34 @@ import package::option::Option::None;
 import package::convert::Into;
 import package::game::ui::UiElement;
 import package::game::ui::UiSize;
-import package::game::ui::UiImage;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 import package::game::ui::UiId;
 import package::game::base_engine::ui_create;
 import package::game::ui::UiProperty;
 import package::game::base_engine::ui_set_property;
+
+// 画像を表示する Element。子は持てない。
+//
+// std 上の型名は `UiImage` である。`struct Image` は
+// `std::game::image::Image` (canvas に置く画像) が既に使っているため、
+// 同じファイルは元より、同じスコープに両方 import すると名前が衝突する
+// (Biwa には import のエイリアスが無い)。エンジン側の kind 番号には
+// 影響しない、std 側だけの命名判断である。
+pub struct UiImage[S] {
+  path: String,
+  id: Option[String],
+  width: Option[UiSize],
+  height: Option[UiSize],
+  margin_left: Option[UiSize],
+  margin_right: Option[UiSize],
+  margin_top: Option[UiSize],
+  margin_bottom: Option[UiSize],
+  padding_left: Option[UiSize],
+  padding_right: Option[UiSize],
+  padding_top: Option[UiSize],
+  padding_bottom: Option[UiSize],
+}
 
 impl[S] UiImage[S] {
   // `path` はパッケージの `assets/` を基準とした相対パス。

@@ -1,15 +1,9 @@
-// `Window[S]` (UI の root Element) の impl。
-//
-// struct 定義は `game/ui.biwa` にある。ここにはコンストラクタと、
-// 木を辿って syscall を発行する `materialize` 相当の `show` を置く。
-
 import package::string::String;
 import package::option::Option;
 import package::option::Option::Some;
 import package::option::Option::None;
 import package::collections::Vec;
 import package::game::Scene;
-import package::game::ui::Window;
 import package::game::ui::Page;
 import package::game::ui::ScenePage;
 import package::game::ui::apply_id;
@@ -18,6 +12,26 @@ import package::game::ui::UiEventHandler;
 import package::game::base_engine::ui_create_window;
 import package::game::base_engine::ui_set_property;
 import package::game::base_engine::ui_set_handler;
+
+// ウィンドウ。UI の root となる Element。子は Page のみ持てる。
+//
+// 型引数 `S` はゲームの状態の型 (`Game[S]` の `S`)。UI の木全体で共有し、
+// `main_scene` と `SceneStartButton` の `on_click` の `Game[S]` を揃える。
+//
+// ノベルゲームとして scene を始められることを保証するもの (`main_scene` / `scene_page`) は
+// `Option` にせず、`Window::new` の引数で必ず受け取る。エンジンも、これらが設定されないまま
+// Page を積まれたら止める。
+//
+// ゲーム側の `fn main()` (エントリポイント) がこれを組み立てて `show()` する。
+[[lang="ui_window"]]
+pub struct Window[S] {
+  pages: Vec[Page[S]],
+  id: Option[String],
+  // scene 本体。`SceneStartButton` が押されると、その `on_click` が作った `Game[S]` でこれが始まる。
+  main_scene: Scene[S],
+  // scene を映すページ。scene が始まるときに表示され、その Canvas / MessageArea が scene の出力先になる。
+  scene_page: ScenePage[S],
+}
 
 impl[S] Window[S] {
   // Window を組み立てる。まだ syscall は発行しない。

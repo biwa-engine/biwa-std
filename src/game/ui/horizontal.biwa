@@ -1,7 +1,3 @@
-// `Horizontal` (子を水平に並べる Layout Element) の impl。
-//
-// struct 定義は `game/ui.biwa` にある。
-
 import package::string::String;
 import package::option::Option;
 import package::option::Option::Some;
@@ -12,12 +8,28 @@ import package::game::color::Color;
 import package::game::ui::UiElement;
 import package::game::ui::UiSize;
 import package::game::ui::Background;
-import package::game::ui::Horizontal;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 import package::game::ui::push_children;
 import package::game::ui::UiId;
 import package::game::base_engine::ui_create;
+
+// 子を水平に並べる Layout Element。
+pub struct Horizontal[S] {
+  children: Vec[UiElement[S]],
+  id: Option[String],
+  width: Option[UiSize],
+  height: Option[UiSize],
+  margin_left: Option[UiSize],
+  margin_right: Option[UiSize],
+  margin_top: Option[UiSize],
+  margin_bottom: Option[UiSize],
+  padding_left: Option[UiSize],
+  padding_right: Option[UiSize],
+  padding_top: Option[UiSize],
+  padding_bottom: Option[UiSize],
+  background: Option[Background],
+}
 
 impl[S] Horizontal[S] {
   pub fn new(children: Vec[UiElement[S]]) -> Self {

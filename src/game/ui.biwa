@@ -28,6 +28,20 @@ import package::game::base_engine::ui_push_child;
 import package::game::base_engine::ui_set_property;
 import package::game::base_engine::wait;
 
+pub import window::Window;
+pub import page::Page;
+pub import scene_page::ScenePage;
+pub import box::Box;
+pub import scene_start_button::SceneStartButton;
+pub import link::Link;
+pub import horizontal::Horizontal;
+pub import vertical::Vertical;
+pub import horizontal_grid::HorizontalGrid;
+pub import image::UiImage;
+pub import canvas::Canvas;
+pub import message_area::MessageArea;
+pub import layers::Layers;
+
 // --- ゲームの出力先の束 (canvas + message area) -------------------------------
 //
 // これは `docs/ui-api.md` の UI Element `Window` とは別物である。
@@ -383,250 +397,6 @@ impl[S] UiElement[S] {
   }
 }
 
-// --- 具体の Element ----------------------------------------------------
-//
-// struct の定義はここに置き、コンストラクタ・ビルダーメソッド・
-// `materialize()` の実装は `game/ui/<element>.biwa` に分けて置く。
-// Biwa Language にはまだ pub use 的なエクスポートも visibility も無いため、
-// 型の定義自体は同じファイルに集めておく必要がある。
-// 将来的には定義自体も `ui/<element>.biwa` に置き、
-// `pub import <element>::<Element>;` のような形で公開する見込み。
-
-// ウィンドウ。UI の root となる Element。子は Page のみ持てる。
-//
-// 型引数 `S` はゲームの状態の型 (`Game[S]` の `S`)。UI の木全体で共有し、
-// `main_scene` と `SceneStartButton` の `on_click` の `Game[S]` を揃える。
-//
-// ノベルゲームとして scene を始められることを保証するもの (`main_scene` / `scene_page`) は
-// `Option` にせず、`Window::new` の引数で必ず受け取る。エンジンも、これらが設定されないまま
-// Page を積まれたら止める。
-//
-// ゲーム側の `fn main()` (エントリポイント) がこれを組み立てて `show()` する。
-[[lang="ui_window"]]
-pub struct Window[S] {
-  pages: Vec[Page[S]],
-  id: Option[String],
-  // scene 本体。`SceneStartButton` が押されると、その `on_click` が作った `Game[S]` でこれが始まる。
-  main_scene: Scene[S],
-  // scene を映すページ。scene が始まるときに表示され、その Canvas / MessageArea が scene の出力先になる。
-  scene_page: ScenePage[S],
-}
-
-// ページ。Window の子として、page_id で区別され、Link で遷移できる。
-pub struct Page[S] {
-  page_id: String,
-  children: Vec[UiElement[S]],
-  background: Option[Background],
-  id: Option[String],
-}
-
-// scene を映すページ (`docs/ui-api.md` の改訂版)。Window が 1 つだけ持つ。
-//
-// Link では遷移できず、`SceneStartButton` が押されて scene が始まるときに表示される。
-// レイアウトは Page と同じく子 Element で自由に決める。
-//
-// scene の出力先 (`canvas` の Canvas API と `message_area` の Content API) は必ず受け取る。
-// 受け取るのは配置ではなく ID で、実体 (`Canvas` / `MessageArea`) は子孫として自分で配置する。
-// 配置し忘れ・ScenePage の外への配置はエンジンが止める (型では担保できないため)。
-pub struct ScenePage[S] {
-  canvas: CanvasId,
-  message_area: MessageAreaId,
-  children: Vec[UiElement[S]],
-  background: Option[Background],
-  id: Option[String],
-}
-
-// 領域を区切る最も基本的な Element。子を 1 つまで持てる (無くてもよい)。
-// テキストも持てる (子と両方持つときはテキストが先に並ぶ)。
-pub struct Box[S] {
-  child: Option[UiElement[S]],
-  id: Option[String],
-  width: Option[UiSize],
-  height: Option[UiSize],
-  margin_left: Option[UiSize],
-  margin_right: Option[UiSize],
-  margin_top: Option[UiSize],
-  margin_bottom: Option[UiSize],
-  padding_left: Option[UiSize],
-  padding_right: Option[UiSize],
-  padding_top: Option[UiSize],
-  padding_bottom: Option[UiSize],
-  background: Option[Background],
-  text: Option[String],
-  text_font: Option[String],
-  text_size: Option[UiSize],
-  text_weight: Option[Uint],
-  text_color: Option[Color],
-}
-
-// 押すと scene を始めるボタン。子は持てない。見た目の property は Link と同じ。
-//
-// 押されるとホストは `on_click` に `GameWindow` (Window の ScenePage の出力先) を渡して `Game[S]` を作らせ、
-// ScenePage を表示してから、その `Game[S]` で Window の `main_scene` を始める。
-pub struct SceneStartButton[S] {
-  on_click: fn(GameWindow) -> Game[S],
-  id: Option[String],
-  width: Option[UiSize],
-  height: Option[UiSize],
-  margin_left: Option[UiSize],
-  margin_right: Option[UiSize],
-  margin_top: Option[UiSize],
-  margin_bottom: Option[UiSize],
-  padding_left: Option[UiSize],
-  padding_right: Option[UiSize],
-  padding_top: Option[UiSize],
-  padding_bottom: Option[UiSize],
-  background: Option[Background],
-  text: Option[String],
-  text_font: Option[String],
-  text_size: Option[UiSize],
-  text_weight: Option[Uint],
-  text_color: Option[Color],
-}
-
-// リンク。クリックすると同じ Window 内の、指定した page_id を持つ Page に遷移する。
-// 子は持てない。テキストを持てる。
-pub struct Link[S] {
-  on_click_link: String,
-  id: Option[String],
-  width: Option[UiSize],
-  height: Option[UiSize],
-  margin_left: Option[UiSize],
-  margin_right: Option[UiSize],
-  margin_top: Option[UiSize],
-  margin_bottom: Option[UiSize],
-  padding_left: Option[UiSize],
-  padding_right: Option[UiSize],
-  padding_top: Option[UiSize],
-  padding_bottom: Option[UiSize],
-  background: Option[Background],
-  text: Option[String],
-  text_font: Option[String],
-  text_size: Option[UiSize],
-  text_weight: Option[Uint],
-  text_color: Option[Color],
-}
-
-// 子を水平に並べる Layout Element。
-pub struct Horizontal[S] {
-  children: Vec[UiElement[S]],
-  id: Option[String],
-  width: Option[UiSize],
-  height: Option[UiSize],
-  margin_left: Option[UiSize],
-  margin_right: Option[UiSize],
-  margin_top: Option[UiSize],
-  margin_bottom: Option[UiSize],
-  padding_left: Option[UiSize],
-  padding_right: Option[UiSize],
-  padding_top: Option[UiSize],
-  padding_bottom: Option[UiSize],
-  background: Option[Background],
-}
-
-// 子を垂直に並べる Layout Element。
-pub struct Vertical[S] {
-  children: Vec[UiElement[S]],
-  id: Option[String],
-  width: Option[UiSize],
-  height: Option[UiSize],
-  margin_left: Option[UiSize],
-  margin_right: Option[UiSize],
-  margin_top: Option[UiSize],
-  margin_bottom: Option[UiSize],
-  padding_left: Option[UiSize],
-  padding_right: Option[UiSize],
-  padding_top: Option[UiSize],
-  padding_bottom: Option[UiSize],
-  background: Option[Background],
-}
-
-// `column` 本の列に並べ、折り返す Layout Element。
-pub struct HorizontalGrid[S] {
-  children: Vec[UiElement[S]],
-  id: Option[String],
-  column: Uint,
-  width: Option[UiSize],
-  height: Option[UiSize],
-  margin_left: Option[UiSize],
-  margin_right: Option[UiSize],
-  margin_top: Option[UiSize],
-  margin_bottom: Option[UiSize],
-  padding_left: Option[UiSize],
-  padding_right: Option[UiSize],
-  padding_top: Option[UiSize],
-  padding_bottom: Option[UiSize],
-  background: Option[Background],
-}
-
-// 画像を表示する Element。子は持てない。
-//
-// std 上の型名は `UiImage` である。`struct Image` は
-// `std::game::image::Image` (canvas に置く画像) が既に使っているため、
-// 同じファイルは元より、同じスコープに両方 import すると名前が衝突する
-// (Biwa には import のエイリアスが無い)。エンジン側の kind 番号には
-// 影響しない、std 側だけの命名判断である。
-pub struct UiImage[S] {
-  path: String,
-  id: Option[String],
-  width: Option[UiSize],
-  height: Option[UiSize],
-  margin_left: Option[UiSize],
-  margin_right: Option[UiSize],
-  margin_top: Option[UiSize],
-  margin_bottom: Option[UiSize],
-  padding_left: Option[UiSize],
-  padding_right: Option[UiSize],
-  padding_top: Option[UiSize],
-  padding_bottom: Option[UiSize],
-}
-
-// Canvas API の出力先になる Element。子は持てない。
-//
-// ゲーム進行中の画像などはここに描かれる。`GameCanvas` がこの ui_id を持つ。
-// Element として切り出しておくのは、複数キャンバスやミラーリングに備えるため
-// (`docs/ui-api.md`)。`Canvas` の名前はもともと `GameCanvas` が使っていたが、
-// UI Element の名前に譲った (§14)。
-//
-// 他の Element と違い、`Canvas::new()` の時点で UI Element を作る (`ui_id` を持つ)。
-// `canvas_id()` で ScenePage に出力先として渡すためである。property は他と同じく `materialize` で設定する。
-pub struct Canvas[S] {
-  ui_id: UiId,
-  id: Option[String],
-  width: Option[UiSize],
-  height: Option[UiSize],
-  margin_left: Option[UiSize],
-  margin_right: Option[UiSize],
-  margin_top: Option[UiSize],
-  margin_bottom: Option[UiSize],
-  padding_left: Option[UiSize],
-  padding_right: Option[UiSize],
-  padding_top: Option[UiSize],
-  padding_bottom: Option[UiSize],
-  background: Option[Background],
-}
-
-// Content API (ノベル表現) の出力先になる Element。子は持てない。
-//
-// scene の生テキストや `$` の埋め込み式はここに出る。`GameMessageArea` がこの ui_id を持つ。
-//
-// `Canvas` と同じく、`MessageArea::new()` の時点で UI Element を作る (`message_area_id()` のため)。
-pub struct MessageArea[S] {
-  ui_id: UiId,
-  id: Option[String],
-  width: Option[UiSize],
-  height: Option[UiSize],
-  margin_left: Option[UiSize],
-  margin_right: Option[UiSize],
-  margin_top: Option[UiSize],
-  margin_bottom: Option[UiSize],
-  padding_left: Option[UiSize],
-  padding_right: Option[UiSize],
-  padding_top: Option[UiSize],
-  padding_bottom: Option[UiSize],
-  background: Option[Background],
-}
-
 // UI Element の id (エンジンが振る ui_id)。素の `Uint` と取り違えないよう包んである。
 // 中身を取り出すのはエンジンとの境界 (`base_engine`) だけである。
 pub(super) struct UiId {
@@ -690,15 +460,4 @@ impl MessageAreaId {
   pub(super) fn as_raw(self) -> Uint {
     self.ui_id.as_raw()
   }
-}
-
-// 子を重ねる Element (`docs/ui-api.md` の `Layers`)。
-//
-// 子はそれぞれ Layers の親の中にいるのと同じように配置され、x / y 方向には
-// 互いに干渉しない。前後は push された順で決まり、**後から push したものほど上**になる
-// (`Layers::new(Vec::of(下)).push(上)`)。背景の Canvas の上にメッセージ枠を重ねる、
-// といった用途に使う。
-pub struct Layers[S] {
-  children: Vec[UiElement[S]],
-  id: Option[String],
 }
