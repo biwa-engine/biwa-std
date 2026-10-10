@@ -120,6 +120,15 @@ import package::game::canvas::CanvasObjectAlphaTransition;
 import package::game::canvas::CanvasObjectThetaTransition;
 import package::game::canvas::CanvasObjectTransitionContinuity;
 import package::game::canvas::CanvasObjectTransitionSyncMode;
+import package::game::color::Color;
+import package::game::font::TextWeight;
+import package::game::ui::Size;
+import package::game::ui::UiId;
+import package::game::ui::UiSize;
+import package::game::ui::UiElement;
+import package::game::ui::UiProperty;
+import package::game::ui::UiEventHandler;
+import package::game::ui::GameCanvas;
 import package::time::Duration;
 
 // syscall の記述子。中身はエンジンとの規約であり、Biwa 側からは不透明。
@@ -193,12 +202,13 @@ fn sys_create_object(
   call $sys_create_object
 }}
 
-fn create_object(
-  canvas_ui_id: Uint,
+pub(super) fn create_object(
+  canvas: GameCanvas,
   path: String, layer: Uint,
   x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha, theta: Theta,
 ) -> Uint {
-  sys_create_object(canvas_ui_id, path, layer, x.value, y.value, w.into(), h.into(), alpha.into(), theta.into())
+  sys_create_object(
+    canvas.ui_id().as_raw(), path, layer, x.into(), y.into(), w.into(), h.into(), alpha.into(), theta.into())
 }
 
 // `after` ミリ秒後にオブジェクトを消す。
@@ -217,8 +227,7 @@ fn sys_delete_object(id: Uint, after: Uint) {{
   call $sys_delete_object
 }}
 
-// pub(super)
-fn delete_object(id: Uint, after: Duration) {
+pub(super) fn delete_object(id: Uint, after: Duration) {
   sys_delete_object(id, after.as_ms());
 }
 
@@ -285,15 +294,15 @@ impl[V, D] CanvasObjectTransition[V, D] {
   fn as_duration(self) -> Duration {
     match self {
       CanvasObjectTransition::None => Duration::ms(0),
-      CanvasObjectTransition::Linear(once) => once.duration,
-      CanvasObjectTransition::EaseIn(once) => once.duration,
-      CanvasObjectTransition::EaseOut(once) => once.duration,
-      CanvasObjectTransition::EaseInOut(once) => once.duration,
-      CanvasObjectTransition::EaseOutIn(once) => once.duration,
-      CanvasObjectTransition::Sin(lo) => lo.period,
-      CanvasObjectTransition::Triangle(lo) => lo.period,
-      CanvasObjectTransition::Square(lo) => lo.period,
-      CanvasObjectTransition::Saw(lo) => lo.period,
+      CanvasObjectTransition::Linear(once) => once.duration(),
+      CanvasObjectTransition::EaseIn(once) => once.duration(),
+      CanvasObjectTransition::EaseOut(once) => once.duration(),
+      CanvasObjectTransition::EaseInOut(once) => once.duration(),
+      CanvasObjectTransition::EaseOutIn(once) => once.duration(),
+      CanvasObjectTransition::Sin(lo) => lo.period(),
+      CanvasObjectTransition::Triangle(lo) => lo.period(),
+      CanvasObjectTransition::Square(lo) => lo.period(),
+      CanvasObjectTransition::Saw(lo) => lo.period(),
     }
   }
 
@@ -307,10 +316,10 @@ impl[V, D] CanvasObjectTransition[V, D] {
 
   fn stop_loop_if_needed(self, id: Uint, param: CanvasObjectParam, after: Duration) {
     let opt_continuity = match self {
-      CanvasObjectTransition::Sin(lo) => Some(lo.continuity),
-      CanvasObjectTransition::Triangle(lo) => Some(lo.continuity),
-      CanvasObjectTransition::Square(lo) => Some(lo.continuity),
-      CanvasObjectTransition::Saw(lo) => Some(lo.continuity),
+      CanvasObjectTransition::Sin(lo) => Some(lo.continuity()),
+      CanvasObjectTransition::Triangle(lo) => Some(lo.continuity()),
+      CanvasObjectTransition::Square(lo) => Some(lo.continuity()),
+      CanvasObjectTransition::Saw(lo) => Some(lo.continuity()),
       _ => None,
     };
 
@@ -339,15 +348,15 @@ impl[V: Into[Float], D: Into[Float]] CanvasObjectTransition[V, D] {
   fn as_fval(self) -> Float {
     match self {
       CanvasObjectTransition::None => 0.0,
-      CanvasObjectTransition::Linear(once) => once.value.into(),
-      CanvasObjectTransition::EaseIn(once) => once.value.into(),
-      CanvasObjectTransition::EaseOut(once) => once.value.into(),
-      CanvasObjectTransition::EaseInOut(once) => once.value.into(),
-      CanvasObjectTransition::EaseOutIn(once) => once.value.into(),
-      CanvasObjectTransition::Sin(lo) => lo.diff.into(),
-      CanvasObjectTransition::Triangle(lo) => lo.diff.into(),
-      CanvasObjectTransition::Square(lo) => lo.diff.into(),
-      CanvasObjectTransition::Saw(lo) => lo.diff.into(),
+      CanvasObjectTransition::Linear(once) => once.value().into(),
+      CanvasObjectTransition::EaseIn(once) => once.value().into(),
+      CanvasObjectTransition::EaseOut(once) => once.value().into(),
+      CanvasObjectTransition::EaseInOut(once) => once.value().into(),
+      CanvasObjectTransition::EaseOutIn(once) => once.value().into(),
+      CanvasObjectTransition::Sin(lo) => lo.diff().into(),
+      CanvasObjectTransition::Triangle(lo) => lo.diff().into(),
+      CanvasObjectTransition::Square(lo) => lo.diff().into(),
+      CanvasObjectTransition::Saw(lo) => lo.diff().into(),
     }
   }
 }
@@ -356,23 +365,22 @@ impl[V: Into[Uint], D: Into[Uint]] CanvasObjectTransition[V, D] {
   fn as_uval(self) -> Uint {
     match self {
       CanvasObjectTransition::None => 0,
-      CanvasObjectTransition::Linear(once) => once.value.into(),
-      CanvasObjectTransition::EaseIn(once) => once.value.into(),
-      CanvasObjectTransition::EaseOut(once) => once.value.into(),
-      CanvasObjectTransition::EaseInOut(once) => once.value.into(),
-      CanvasObjectTransition::EaseOutIn(once) => once.value.into(),
-      CanvasObjectTransition::Sin(lo) => lo.diff.into(),
-      CanvasObjectTransition::Triangle(lo) => lo.diff.into(),
-      CanvasObjectTransition::Square(lo) => lo.diff.into(),
-      CanvasObjectTransition::Saw(lo) => lo.diff.into(),
+      CanvasObjectTransition::Linear(once) => once.value().into(),
+      CanvasObjectTransition::EaseIn(once) => once.value().into(),
+      CanvasObjectTransition::EaseOut(once) => once.value().into(),
+      CanvasObjectTransition::EaseInOut(once) => once.value().into(),
+      CanvasObjectTransition::EaseOutIn(once) => once.value().into(),
+      CanvasObjectTransition::Sin(lo) => lo.diff().into(),
+      CanvasObjectTransition::Triangle(lo) => lo.diff().into(),
+      CanvasObjectTransition::Square(lo) => lo.diff().into(),
+      CanvasObjectTransition::Saw(lo) => lo.diff().into(),
     }
   }
 }
 
 // 1 つのパラメータに遷移を 1 つ積む。`after` は発火からの遅れ。
 // 周期系で終わりがあるものは、終わる時刻に `none` を積んで止める。
-// pub(super)
-fn add_x_transition(id: Uint, transition: CanvasObjectXTransition, after: Duration) {
+pub(super) fn add_x_transition(id: Uint, transition: CanvasObjectXTransition, after: Duration) {
   sys_add_transition(
     id,
     CanvasObjectParam::X.as_raw(),
@@ -385,8 +393,7 @@ fn add_x_transition(id: Uint, transition: CanvasObjectXTransition, after: Durati
   transition.stop_loop_if_needed(id, CanvasObjectParam::X, after);
 }
 
-// pub(super)
-fn add_y_transition(id: Uint, transition: CanvasObjectYTransition, after: Duration) {
+pub(super) fn add_y_transition(id: Uint, transition: CanvasObjectYTransition, after: Duration) {
   sys_add_transition(
     id,
     CanvasObjectParam::Y.as_raw(),
@@ -399,8 +406,7 @@ fn add_y_transition(id: Uint, transition: CanvasObjectYTransition, after: Durati
   transition.stop_loop_if_needed(id, CanvasObjectParam::Y, after);
 }
 
-// pub(super)
-fn add_w_transition(id: Uint, transition: CanvasObjectWTransition, after: Duration) {
+pub(super) fn add_w_transition(id: Uint, transition: CanvasObjectWTransition, after: Duration) {
   sys_add_transition(
     id,
     CanvasObjectParam::W.as_raw(),
@@ -413,8 +419,7 @@ fn add_w_transition(id: Uint, transition: CanvasObjectWTransition, after: Durati
   transition.stop_loop_if_needed(id, CanvasObjectParam::W, after);
 }
 
-// pub(super)
-fn add_h_transition(id: Uint, transition: CanvasObjectHTransition, after: Duration) {
+pub(super) fn add_h_transition(id: Uint, transition: CanvasObjectHTransition, after: Duration) {
   sys_add_transition(
     id,
     CanvasObjectParam::H.as_raw(),
@@ -427,8 +432,7 @@ fn add_h_transition(id: Uint, transition: CanvasObjectHTransition, after: Durati
   transition.stop_loop_if_needed(id, CanvasObjectParam::H, after);
 }
 
-// pub(super)
-fn add_alpha_transition(id: Uint, transition: CanvasObjectAlphaTransition, after: Duration) {
+pub(super) fn add_alpha_transition(id: Uint, transition: CanvasObjectAlphaTransition, after: Duration) {
   sys_add_transition(
     id,
     CanvasObjectParam::Alpha.as_raw(),
@@ -441,8 +445,7 @@ fn add_alpha_transition(id: Uint, transition: CanvasObjectAlphaTransition, after
   transition.stop_loop_if_needed(id, CanvasObjectParam::Alpha, after);
 }
 
-// pub(super)
-fn add_theta_transition(id: Uint, transition: CanvasObjectThetaTransition, after: Duration) {
+pub(super) fn add_theta_transition(id: Uint, transition: CanvasObjectThetaTransition, after: Duration) {
   sys_add_transition(
     id,
     CanvasObjectParam::Theta.as_raw(),
@@ -482,8 +485,7 @@ impl CanvasObjectTransitionSyncMode {
   }
 }
 
-// pub(super)
-fn start_transitions(sync: CanvasObjectTransitionSyncMode) {
+pub(super) fn start_transitions(sync: CanvasObjectTransitionSyncMode) {
   sys_start_transitions(sync.as_raw());
 }
 
@@ -493,14 +495,14 @@ fn start_transitions(sync: CanvasObjectTransitionSyncMode) {
 // 今のところ novel statement の展開先だけで、任意の呼び出しを中断させる手段が
 // コンパイラに無い。
 [[native(arch="wasm")]]
-fn await_transitions() {{
+pub(super) fn await_transitions() {{
   call $sys_await_transitions
 }}
 
 // エンジン時計の上で指定時間シーンを止める (ポーズ中は進まない)。
 // `await_transitions` と同じく wasm ターゲット専用。
 [[native(arch="wasm")]]
-fn sleep(ms: Uint) {{
+pub(super) fn sleep(ms: Uint) {{
   local.get 0
   call $sys_sleep
 }}
@@ -582,6 +584,35 @@ fn sys_content_clear(ui_id: Uint) {{
   call $sys_content_clear
 }}
 
+// テキストを 1 つ積む。`message_area` は出力先の MessageArea。
+//
+// 引数はすべて解決済みの絶対値である (設定の解決は `std::game::content` の仕事)。
+// `Size` は (単位, 値) に、色は 4 成分に割って渡す (`sys_content_push_text` を参照)。
+pub(super) fn content_push_text(
+  message_area: UiId, text: String, speed: Float, size: Size, weight: TextWeight, color: Color,
+) {
+  match size {
+    Size::Vw(v) => {
+      sys_content_push_text(
+        message_area.as_raw(), text, speed, 0, v, weight.weight(),
+        color.r(), color.g(), color.b(), color.a());
+    }
+    Size::Vh(v) => {
+      sys_content_push_text(
+        message_area.as_raw(), text, speed, 1, v, weight.weight(),
+        color.r(), color.g(), color.b(), color.a());
+    }
+  }
+}
+
+pub(super) fn content_flush(message_area: UiId) {
+  sys_content_flush(message_area.as_raw());
+}
+
+pub(super) fn content_clear(message_area: UiId) {
+  sys_content_clear(message_area.as_raw());
+}
+
 // クリックが来るまで待つ。
 // エンジンはクリックが来るまで scene を再開しない。
 //
@@ -589,12 +620,12 @@ fn sys_content_clear(ui_id: Uint) {{
 // これを呼ぶ `content_flush_and_wait` は普通の関数なので
 // コンパイラが `yield` を置かない (`docs/content-api.md` の段 2 を参照)。
 [[native(arch="typescript")]]
-fn wait() -> Syscall {{
+pub(super) fn wait() -> Syscall {{
   return { sys: Sys.Wait, args: [] };
 }}
 
 [[native(arch="wasm")]]
-fn wait() {{
+pub(super) fn wait() {{
   call $sys_wait
 }}
 
@@ -604,35 +635,35 @@ fn wait() {{
 // `String` の実体はホスト側にしか無いので、数値から作るのもホストに頼む。
 
 [[native(arch="typescript")]]
-fn int_to_string(val: Int) -> String {{
+pub(package) fn int_to_string(val: Int) -> String {{
   return String(val);
 }}
 
 [[native(arch="wasm")]]
-fn int_to_string(val: Int) -> String {{
+pub(package) fn int_to_string(val: Int) -> String {{
   local.get 0
   call $sys_int_to_string
 }}
 
 // 整数を浮動小数にする。値の変換で、エンジンは呼ばない。
 [[native(arch="typescript")]]
-fn int_to_float(val: Int) -> Float {{
+pub(package) fn int_to_float(val: Int) -> Float {{
   return val;
 }}
 
 [[native(arch="wasm")]]
-fn int_to_float(val: Int) -> Float {{
+pub(package) fn int_to_float(val: Int) -> Float {{
   local.get 0
   f32.convert_i32_s
 }}
 
 [[native(arch="typescript")]]
-fn float_to_string(val: Float) -> String {{
+pub(package) fn float_to_string(val: Float) -> String {{
   return String(val);
 }}
 
 [[native(arch="wasm")]]
-fn float_to_string(val: Float) -> String {{
+pub(package) fn float_to_string(val: Float) -> String {{
   local.get 0
   call $sys_float_to_string
 }}
@@ -662,6 +693,48 @@ fn sys_ui_create(kind: Uint) -> Uint {{
   local.get 0
   call $sys_ui_create
 }}
+
+// Element の種類ごとの番号 (`ElementKind`)。
+pub(super) fn ui_create_window() -> UiId {
+  UiId::new(sys_ui_create(0))
+}
+
+pub(super) fn ui_create_page() -> UiId {
+  UiId::new(sys_ui_create(1))
+}
+
+pub(super) fn ui_create_scene_page() -> UiId {
+  UiId::new(sys_ui_create(11))
+}
+
+// Canvas / MessageArea は、ScenePage に ID を渡すために `new()` の時点で作る
+// (`Canvas::canvas_id()` / `MessageArea::message_area_id()`)。
+pub(super) fn ui_create_canvas() -> UiId {
+  UiId::new(sys_ui_create(8))
+}
+
+pub(super) fn ui_create_message_area() -> UiId {
+  UiId::new(sys_ui_create(9))
+}
+
+// `ui` の種類の UI Element を作る。中身 (property・子) は見ない。
+//
+// Canvas / MessageArea は `new()` の時点で作ってあるので (`ui_create_canvas` /
+// `ui_create_message_area`)、それらの `materialize` はこれを呼ばない。
+pub(super) fn ui_create[S](ui: UiElement[S]) -> UiId {
+  match ui {
+    UiElement::Box(_) => UiId::new(sys_ui_create(2)),
+    UiElement::Link(_) => UiId::new(sys_ui_create(3)),
+    UiElement::Horizontal(_) => UiId::new(sys_ui_create(4)),
+    UiElement::Vertical(_) => UiId::new(sys_ui_create(5)),
+    UiElement::HorizontalGrid(_) => UiId::new(sys_ui_create(6)),
+    UiElement::Image(_) => UiId::new(sys_ui_create(7)),
+    UiElement::Canvas(_) => ui_create_canvas(),
+    UiElement::MessageArea(_) => ui_create_message_area(),
+    UiElement::Layers(_) => UiId::new(sys_ui_create(10)),
+    UiElement::SceneStartButton(_) => UiId::new(sys_ui_create(12)),
+  }
+}
 
 // 数値の property を設定する。
 //
@@ -739,6 +812,10 @@ fn sys_ui_push_child(parent: Uint, child: Uint) {{
   call $sys_ui_push_child
 }}
 
+pub(super) fn ui_push_child(parent: UiId, child: UiId) {
+  sys_ui_push_child(parent.as_raw(), child.as_raw());
+}
+
 // Element にハンドラ (ホストが後で呼ぶ関数) を設定する。
 //
 // `kind` はハンドラの種類で、番号は engine の `api/ui.ts` (`HandlerKind`) が正。
@@ -763,3 +840,67 @@ fn sys_ui_set_handler[A, R](ui_id: Uint, kind: Uint, f: fn(A) -> R) {{
   local.get 2
   call $sys_ui_set_handler
 }}
+
+// 大きさの property。val_u1 が単位 (0 = vw, 1 = vh, 2 = percent)、val_f が値。
+fn ui_set_size_property(ui: UiId, kind: Uint, size: UiSize) {
+  match size {
+    UiSize::Vw(v) => { sys_ui_set_property(ui.as_raw(), kind, 0, 0, 0, 0, 0, 0, v); }
+    UiSize::Vh(v) => { sys_ui_set_property(ui.as_raw(), kind, 1, 0, 0, 0, 0, 0, v); }
+    UiSize::Percent(v) => { sys_ui_set_property(ui.as_raw(), kind, 2, 0, 0, 0, 0, 0, v); }
+  }
+}
+
+// 色の property。val_u1..val_u4 が r / g / b / a。
+fn ui_set_color_property(ui: UiId, kind: Uint, c: Color) {
+  sys_ui_set_property(ui.as_raw(), kind, c.r(), c.g(), c.b(), c.a(), 0, 0, 0.0);
+}
+
+// 整数 1 つの property (ui_id など)。val_u1 に積む。
+fn ui_set_uint_property(ui: UiId, kind: Uint, value: Uint) {
+  sys_ui_set_property(ui.as_raw(), kind, value, 0, 0, 0, 0, 0, 0.0);
+}
+
+// 文字列の property。数値の枠は使わない。
+fn ui_set_string_property(ui: UiId, kind: Uint, value: String) {
+  sys_ui_set_property_with_string(ui.as_raw(), kind, 0, 0, 0.0, value);
+}
+
+// property を 1 つ設定する。番号 (`PropertyKind`) と値の詰め方はここにしか書かない。
+pub(super) fn ui_set_property(ui: UiId, prop: UiProperty) {
+  match prop {
+    UiProperty::Width(size) => ui_set_size_property(ui, 0, size),
+    UiProperty::Height(size) => ui_set_size_property(ui, 1, size),
+    UiProperty::MarginLeft(size) => ui_set_size_property(ui, 2, size),
+    UiProperty::MarginRight(size) => ui_set_size_property(ui, 3, size),
+    UiProperty::MarginTop(size) => ui_set_size_property(ui, 4, size),
+    UiProperty::MarginBottom(size) => ui_set_size_property(ui, 5, size),
+    UiProperty::PaddingLeft(size) => ui_set_size_property(ui, 6, size),
+    UiProperty::PaddingRight(size) => ui_set_size_property(ui, 7, size),
+    UiProperty::PaddingTop(size) => ui_set_size_property(ui, 8, size),
+    UiProperty::PaddingBottom(size) => ui_set_size_property(ui, 9, size),
+    UiProperty::BackgroundColor(c) => ui_set_color_property(ui, 10, c),
+    UiProperty::Column(column) => ui_set_uint_property(ui, 11, column),
+    UiProperty::TextSize(size) => ui_set_size_property(ui, 12, size),
+    UiProperty::TextWeight(weight) => ui_set_uint_property(ui, 13, weight),
+    UiProperty::TextColor(c) => ui_set_color_property(ui, 14, c),
+    UiProperty::WindowScenePage(scene_page) => ui_set_uint_property(ui, 15, scene_page.as_raw()),
+    UiProperty::ScenePageCanvas(canvas) => ui_set_uint_property(ui, 16, canvas.as_raw()),
+    UiProperty::ScenePageMessageArea(message_area) =>
+      ui_set_uint_property(ui, 17, message_area.as_raw()),
+    UiProperty::PageId(page_id) => ui_set_string_property(ui, 100, page_id),
+    UiProperty::OnClickLink(page_id) => ui_set_string_property(ui, 101, page_id),
+    UiProperty::Text(text) => ui_set_string_property(ui, 102, text),
+    UiProperty::TextFont(font) => ui_set_string_property(ui, 103, font),
+    UiProperty::BackgroundImage(path) => ui_set_string_property(ui, 104, path),
+    UiProperty::Image(path) => ui_set_string_property(ui, 105, path),
+    UiProperty::Id(id) => ui_set_string_property(ui, 106, id),
+  }
+}
+
+// ハンドラ (ホストが後で呼ぶ関数) を設定する。番号 (`HandlerKind`) はここにしか書かない。
+pub(super) fn ui_set_handler[S](ui: UiId, handler: UiEventHandler[S]) {
+  match handler {
+    UiEventHandler::WindowMainScene(h) => sys_ui_set_handler(ui.as_raw(), 0, h),
+    UiEventHandler::SceneStartButtonOnClick(h) => sys_ui_set_handler(ui.as_raw(), 1, h),
+  }
+}

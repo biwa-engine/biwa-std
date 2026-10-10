@@ -16,13 +16,13 @@ import package::game::base_engine::int_to_string;
 import package::game::base_engine::float_to_string;
 import package::game::Game;
 
-enum Content {
+pub enum Content {
   Text(TextContent),
 }
 
 // 最も標準的な、テキストのcontent
 // The basic text `content`.
-struct TextContent {
+pub struct TextContent {
   text: String,
   speed: ContentSpeedLevel,
   size: ContentSizeLevel,
@@ -32,7 +32,7 @@ struct TextContent {
 
 impl TextContent {
   // 装飾をいっさい付けないテキスト。すべて設定どおりに出る。
-  fn plain(text: String) -> Self {
+  pub fn plain(text: String) -> Self {
     Self {
       text = text,
       speed = ContentSpeedLevel::normal(),
@@ -44,9 +44,15 @@ impl TextContent {
 }
 
 // 文字(content)の速度
-struct ContentSpeed {
+pub struct ContentSpeed {
   // 秒間何文字出るか
   text_per_sec: Float,
+}
+
+impl ContentSpeed {
+  pub fn text_per_sec(text_per_sec: Float) -> Self {
+    Self { text_per_sec = text_per_sec }
+  }
 }
 
 struct ContentSpeedLevel {
@@ -157,7 +163,7 @@ fn content_flush_and_wait[S](game: Game[S]) {
 // テキストを出そうとするのはゲーム側の構成の誤りなので、黙って捨てずに止める
 // (`Option::unwrap` → `abort`。wasm では trap する)。
 fn message_area_of[S](game: Game[S]) -> GameMessageArea {
-  game.window.message_area.unwrap()
+  game.window.message_area().unwrap()
 }
 
 // ---- 設定の解決 ----
@@ -167,16 +173,16 @@ fn message_area_of[S](game: Game[S]) -> GameMessageArea {
 // エンジンが設定を持たないのはこのためである。
 
 fn resolved_speed(config: Config, level: ContentSpeedLevel) -> Float {
-  config.user.content_speed.text_per_sec * level.mul
+  config.user().content_speed().text_per_sec * level.mul
 }
 
 fn resolved_size(config: Config, level: ContentSizeLevel) -> Size {
-  config.user.content_size.mul(level.mul)
+  config.user().content_size().mul(level.mul)
 }
 
 fn resolved_color(config: Config, color: ContentColor) -> Color {
   match color {
-    ContentColor::Configured => config.dev.default_text_color,
+    ContentColor::Configured => config.dev().default_text_color(),
     ContentColor::Value(c) => c,
   }
 }
@@ -200,90 +206,90 @@ fn resolved_color(config: Config, color: ContentColor) -> Color {
 // --- 色 ---
 
 // 色を指定する。
-fn colored[C: Into[Content]](content: C, color: Color) -> Content {
+pub fn colored[C: Into[Content]](content: C, color: Color) -> Content {
   set_color(content.into(), ContentColor::Value(color))
 }
 
-fn black[C: Into[Content]](content: C) -> Content {
+pub fn black[C: Into[Content]](content: C) -> Content {
   colored(content, Color::black())
 }
 
-fn silver[C: Into[Content]](content: C) -> Content {
+pub fn silver[C: Into[Content]](content: C) -> Content {
   colored(content, Color::silver())
 }
 
-fn gray[C: Into[Content]](content: C) -> Content {
+pub fn gray[C: Into[Content]](content: C) -> Content {
   colored(content, Color::gray())
 }
 
-fn white[C: Into[Content]](content: C) -> Content {
+pub fn white[C: Into[Content]](content: C) -> Content {
   colored(content, Color::white())
 }
 
-fn maroon[C: Into[Content]](content: C) -> Content {
+pub fn maroon[C: Into[Content]](content: C) -> Content {
   colored(content, Color::maroon())
 }
 
-fn red[C: Into[Content]](content: C) -> Content {
+pub fn red[C: Into[Content]](content: C) -> Content {
   colored(content, Color::red())
 }
 
-fn purple[C: Into[Content]](content: C) -> Content {
+pub fn purple[C: Into[Content]](content: C) -> Content {
   colored(content, Color::purple())
 }
 
-fn fuchsi[C: Into[Content]](content: C) -> Content {
+pub fn fuchsi[C: Into[Content]](content: C) -> Content {
   colored(content, Color::fuchsi())
 }
 
-fn green[C: Into[Content]](content: C) -> Content {
+pub fn green[C: Into[Content]](content: C) -> Content {
   colored(content, Color::green())
 }
 
-fn lime[C: Into[Content]](content: C) -> Content {
+pub fn lime[C: Into[Content]](content: C) -> Content {
   colored(content, Color::lime())
 }
 
-fn olive[C: Into[Content]](content: C) -> Content {
+pub fn olive[C: Into[Content]](content: C) -> Content {
   colored(content, Color::olive())
 }
 
-fn yellow[C: Into[Content]](content: C) -> Content {
+pub fn yellow[C: Into[Content]](content: C) -> Content {
   colored(content, Color::yellow())
 }
 
-fn navy[C: Into[Content]](content: C) -> Content {
+pub fn navy[C: Into[Content]](content: C) -> Content {
   colored(content, Color::navy())
 }
 
-fn blue[C: Into[Content]](content: C) -> Content {
+pub fn blue[C: Into[Content]](content: C) -> Content {
   colored(content, Color::blue())
 }
 
-fn teal[C: Into[Content]](content: C) -> Content {
+pub fn teal[C: Into[Content]](content: C) -> Content {
   colored(content, Color::teal())
 }
 
-fn aqua[C: Into[Content]](content: C) -> Content {
+pub fn aqua[C: Into[Content]](content: C) -> Content {
   colored(content, Color::aqua())
 }
 
-fn orange[C: Into[Content]](content: C) -> Content {
+pub fn orange[C: Into[Content]](content: C) -> Content {
   colored(content, Color::orange())
 }
 
 // --- 太さ ---
 
 // 太さを指定する。
-fn weighted[C: Into[Content]](content: C, weight: TextWeight) -> Content {
+pub fn weighted[C: Into[Content]](content: C, weight: TextWeight) -> Content {
   set_weight(content.into(), weight)
 }
 
-fn bold[C: Into[Content]](content: C) -> Content {
+pub fn bold[C: Into[Content]](content: C) -> Content {
   weighted(content, TextWeight::bold())
 }
 
-fn light[C: Into[Content]](content: C) -> Content {
+pub fn light[C: Into[Content]](content: C) -> Content {
   weighted(content, TextWeight::light())
 }
 
@@ -294,15 +300,15 @@ fn light[C: Into[Content]](content: C) -> Content {
 //
 // 入れ子にすると掛け合わさる (`big(big(x))` は 4 倍)。
 
-fn sized[C: Into[Content]](content: C, mul: Float) -> Content {
+pub fn sized[C: Into[Content]](content: C, mul: Float) -> Content {
   scale_size(content.into(), mul)
 }
 
-fn big[C: Into[Content]](content: C) -> Content {
+pub fn big[C: Into[Content]](content: C) -> Content {
   sized(content, 2.0)
 }
 
-fn small[C: Into[Content]](content: C) -> Content {
+pub fn small[C: Into[Content]](content: C) -> Content {
   sized(content, 0.5)
 }
 
@@ -311,15 +317,15 @@ fn small[C: Into[Content]](content: C) -> Content {
 // 大きさと同じく、設定された速度の何倍かで指定する。
 // 入れ子にすると掛け合わさる。
 
-fn paced[C: Into[Content]](content: C, mul: Float) -> Content {
+pub fn paced[C: Into[Content]](content: C, mul: Float) -> Content {
   scale_speed(content.into(), mul)
 }
 
-fn fast[C: Into[Content]](content: C) -> Content {
+pub fn fast[C: Into[Content]](content: C) -> Content {
   paced(content, 2.0)
 }
 
-fn slow[C: Into[Content]](content: C) -> Content {
+pub fn slow[C: Into[Content]](content: C) -> Content {
   paced(content, 0.5)
 }
 

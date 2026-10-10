@@ -5,7 +5,7 @@ import package::game::color::Color;
 import package::game::ui::Size;
 import package::game::content::ContentSpeed;
 
-struct Config {
+pub struct Config {
   // 開発者によって設定されるconfig
   // ビルド時に固定される種類の値を格納
   dev: DeveloperConfig,
@@ -14,7 +14,7 @@ struct Config {
   user: UserConfig,
 }
 
-struct DeveloperConfig {
+pub struct DeveloperConfig {
   // window の mode
   // *Only にすると、設定していない方のモードに変更しようとするAPIが発行されても
   // 無視される
@@ -31,7 +31,7 @@ struct DeveloperConfig {
   default_text_color: Color,
 }
 
-struct UserConfig {
+pub(super) struct UserConfig {
   // ユーザによって動的に設定された文字速度
   // デフォルト値は DeveloperConfig.default_content_speed 
   content_speed: ContentSpeed,
@@ -41,22 +41,22 @@ struct UserConfig {
   content_size: Size,
 }
 
-enum WindowMode {
+pub enum WindowMode {
   Both,
   AdventureOnly,
   VisualNovelOnly,
 }
 
 impl Config {
-  // 何も指定しないゲームのための設定。
-  //
-  // `Game::new()` が使う。値を変えたいゲームは
-  // `DeveloperConfig::new()` を組み立てて `Config::new()` を呼ぶ。
-  fn default() -> Self {
-    Config::new(DeveloperConfig::default())
+  pub(super) fn dev(self) -> DeveloperConfig {
+    self.dev
   }
 
-  fn new(dev: DeveloperConfig) -> Self {
+  pub(super) fn user(self) -> UserConfig {
+    self.user
+  }
+
+  pub fn new(dev: DeveloperConfig) -> Self {
     Self {
       dev = dev,
       user = UserConfig {
@@ -68,16 +68,20 @@ impl Config {
 }
 
 impl DeveloperConfig {
-  fn default() -> Self {
+  pub(super) fn default_text_color(self) -> Color {
+    self.default_text_color
+  }
+
+  pub fn default() -> Self {
     Self {
       mode = WindowMode::Both,
-      default_content_speed = ContentSpeed { text_per_sec = 30.0 },
+      default_content_speed = ContentSpeed::text_per_sec(30.0),
       default_content_size = Size::Vh(2.0),
       default_text_color = Color::white(),
     }
   }
 
-  fn new(
+  pub fn new(
     mode: WindowMode,
     default_content_speed: ContentSpeed,
     default_content_size: Size,
@@ -89,5 +93,15 @@ impl DeveloperConfig {
       default_content_size = default_content_size,
       default_text_color = default_text_color,
     }
+  }
+}
+
+impl UserConfig {
+  pub(super) fn content_speed(self) -> ContentSpeed {
+    self.content_speed
+  }
+
+  pub(super) fn content_size(self) -> Size {
+    self.content_size
   }
 }

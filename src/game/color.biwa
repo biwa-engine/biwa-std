@@ -1,6 +1,6 @@
 import package::convert::Into;
 
-struct Color {
+pub struct Color {
   // 現在のBiwaにはByte型がないのでUintで表現しているが、
   // いずれも 0 ~ 255 の値に丸められる
   r: Uint,
@@ -10,26 +10,26 @@ struct Color {
 }
 
 // 0 <= value <= 255
-struct Alpha {
+pub struct Alpha {
   value: Uint,
 }
 
 impl Alpha {
-  fn alpha(value: Uint) -> Alpha { Alpha { value = value } }
+  pub fn alpha(value: Uint) -> Alpha { Alpha { value = value } }
 
-  fn transparent() -> Alpha { Alpha { value = 0 } }
+  pub fn transparent() -> Alpha { Alpha { value = 0 } }
 
-  fn is_transparent(self) -> Bool { self.value == 0 }
+  pub(package) fn is_transparent(self) -> Bool { self.value == 0 }
 
-  fn opaque() -> Alpha { Alpha { value = 255 } }
+  pub fn opaque() -> Alpha { Alpha { value = 255 } }
 
-  fn is_opaque(self) -> Bool { self.value >= 255 }
+  pub(package) fn is_opaque(self) -> Bool { self.value >= 255 }
 
-  fn add(self, rhs: Self) -> Self {
+  pub(package) fn add(self, rhs: Self) -> Self {
     Self { value = self.value + rhs.value }
   }
 
-  fn sub(self, rhs: Self) -> Self {
+  pub(package) fn sub(self, rhs: Self) -> Self {
     Self { value = self.value - rhs.value }
   }
 }
@@ -66,12 +66,20 @@ impl Alpha: Into[Uint] {
 // And if we need more colors,
 // we must refer to CSS Colors Level 3 (https://drafts.csswg.org/css-color-3/#svg-color) and define color APIs.
 impl Color {
-  fn new(r: Uint, g: Uint, b: Uint, a: Uint) -> Self {
+  pub fn new(r: Uint, g: Uint, b: Uint, a: Uint) -> Self {
     Self { r = r, g = g, b = b, a = a }
   }
 
+  pub(super) fn r(self) -> Uint { self.r }
+
+  pub(super) fn g(self) -> Uint { self.g }
+
+  pub(super) fn b(self) -> Uint { self.b }
+
+  pub(super) fn a(self) -> Uint { self.a }
+
   // black    #000000 	
-  fn black() -> Self {
+  pub fn black() -> Self {
     Self {
       r = 0x00,
       g = 0x00,
@@ -81,7 +89,7 @@ impl Color {
   }
   
   // silver   #c0c0c0 	
-  fn silver() -> Self {
+  pub fn silver() -> Self {
     Self {
       r = 0xc0,
       g = 0xc0,
@@ -91,7 +99,7 @@ impl Color {
   }
   
   // gray     #808080 	
-  fn gray() -> Self {
+  pub fn gray() -> Self {
     Self {
       r = 0x80,
       g = 0x80,
@@ -101,7 +109,7 @@ impl Color {
   }
 
   // white    #ffffff 	
-  fn white() -> Self {
+  pub fn white() -> Self {
     Self {
       r = 0xff,
       g = 0xff,
@@ -111,7 +119,7 @@ impl Color {
   }
 
   // maroon   #800000 	
-  fn maroon() -> Self {
+  pub fn maroon() -> Self {
     Self {
       r = 0x80,
       g = 0x00,
@@ -121,7 +129,7 @@ impl Color {
   }
   
   // red      #ff0000 	
-  fn red() -> Self {
+  pub fn red() -> Self {
     Self {
       r = 0xff,
       g = 0x00,
@@ -131,7 +139,7 @@ impl Color {
   }
   
   // purple   #800080 	
-  fn purple() -> Self {
+  pub fn purple() -> Self {
     Self {
       r = 0x80,
       g = 0x00,
@@ -141,7 +149,7 @@ impl Color {
   }
   
   // fuchsi   #ff00ff 	
-  fn fuchsi() -> Self {
+  pub fn fuchsi() -> Self {
     Self {
       r = 0xff,
       g = 0x00,
@@ -151,7 +159,7 @@ impl Color {
   }
   
   // green    #008000 	
-  fn green() -> Self {
+  pub fn green() -> Self {
     Self {
       r = 0x00,
       g = 0x80,
@@ -161,7 +169,7 @@ impl Color {
   }
   
   // lime     #00ff00 	
-  fn lime() -> Self {
+  pub fn lime() -> Self {
     Self {
       r = 0x00,
       g = 0xff,
@@ -171,7 +179,7 @@ impl Color {
   }
   
   // olive    #808000 	
-  fn olive() -> Self {
+  pub fn olive() -> Self {
     Self {
       r = 0x80,
       g = 0x80,
@@ -181,7 +189,7 @@ impl Color {
   }
   
   // yellow   #ffff00 	
-  fn yellow() -> Self {
+  pub fn yellow() -> Self {
     Self {
       r = 0xff,
       g = 0xff,
@@ -191,7 +199,7 @@ impl Color {
   }
   
   // navy     #000080 	
-  fn navy() -> Self {
+  pub fn navy() -> Self {
     Self {
       r = 0x00,
       g = 0x00,
@@ -201,7 +209,7 @@ impl Color {
   }
   
   // blue     #0000ff 	
-  fn blue() -> Self {
+  pub fn blue() -> Self {
     Self {
       r = 0x00,
       g = 0x00,
@@ -211,7 +219,7 @@ impl Color {
   }
   
   // teal     #008080 	
-  fn teal() -> Self {
+  pub fn teal() -> Self {
     Self {
       r = 0x00,
       g = 0x80,
@@ -221,7 +229,7 @@ impl Color {
   }
   
   // aqua     #00ffff
-  fn aqua() -> Self {
+  pub fn aqua() -> Self {
     Self {
       r = 0x00,
       g = 0xff,
@@ -231,7 +239,7 @@ impl Color {
   }
   
   // orange   #ffA500
-  fn orange() -> Self {
+  pub fn orange() -> Self {
     Self {
       r = 0xff,
       g = 0xA5,

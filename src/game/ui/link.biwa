@@ -10,21 +10,21 @@ import package::option::Option::Some;
 import package::option::Option::None;
 import package::convert::Into;
 import package::game::color::Color;
-import package::game::base_engine::sys_ui_create;
-import package::game::base_engine::sys_ui_set_property_with_string;
 import package::game::ui::UiElement;
 import package::game::ui::UiSize;
 import package::game::ui::Background;
 import package::game::ui::Link;
-import package::game::ui::element_kind_link;
-import package::game::ui::property_kind_on_click_link;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 import package::game::ui::apply_text_properties;
+import package::game::ui::UiId;
+import package::game::base_engine::ui_create;
+import package::game::ui::UiProperty;
+import package::game::base_engine::ui_set_property;
 
 impl[S] Link[S] {
   // `on_click_link` は同じ Window 内の遷移先 page_id。
-  fn new(on_click_link: String) -> Self {
+  pub fn new(on_click_link: String) -> Self {
     Self {
       on_click_link = on_click_link,
       id = None,
@@ -48,103 +48,103 @@ impl[S] Link[S] {
   }
 
   // すべての Element が持てる任意の識別子。
-  fn id(self, value: String) -> Self {
+  pub fn id(self, value: String) -> Self {
     self.id = Some(value);
     self
   }
 
-  fn width(self, value: UiSize) -> Self {
+  pub fn width(self, value: UiSize) -> Self {
     self.width = Some(value);
     self
   }
 
-  fn height(self, value: UiSize) -> Self {
+  pub fn height(self, value: UiSize) -> Self {
     self.height = Some(value);
     self
   }
 
-  fn margin_left(self, value: UiSize) -> Self {
+  pub fn margin_left(self, value: UiSize) -> Self {
     self.margin_left = Some(value);
     self
   }
 
-  fn margin_right(self, value: UiSize) -> Self {
+  pub fn margin_right(self, value: UiSize) -> Self {
     self.margin_right = Some(value);
     self
   }
 
-  fn margin_top(self, value: UiSize) -> Self {
+  pub fn margin_top(self, value: UiSize) -> Self {
     self.margin_top = Some(value);
     self
   }
 
-  fn margin_bottom(self, value: UiSize) -> Self {
+  pub fn margin_bottom(self, value: UiSize) -> Self {
     self.margin_bottom = Some(value);
     self
   }
 
-  fn padding_left(self, value: UiSize) -> Self {
+  pub fn padding_left(self, value: UiSize) -> Self {
     self.padding_left = Some(value);
     self
   }
 
-  fn padding_right(self, value: UiSize) -> Self {
+  pub fn padding_right(self, value: UiSize) -> Self {
     self.padding_right = Some(value);
     self
   }
 
-  fn padding_top(self, value: UiSize) -> Self {
+  pub fn padding_top(self, value: UiSize) -> Self {
     self.padding_top = Some(value);
     self
   }
 
-  fn padding_bottom(self, value: UiSize) -> Self {
+  pub fn padding_bottom(self, value: UiSize) -> Self {
     self.padding_bottom = Some(value);
     self
   }
 
-  fn background_color(self, value: Color) -> Self {
+  pub fn background_color(self, value: Color) -> Self {
     self.background = Some(Background::Color(value));
     self
   }
 
   // `background_color` とは排他 (どちらか後に呼んだ方が勝つ)。
-  fn background_image(self, value: String) -> Self {
+  pub fn background_image(self, value: String) -> Self {
     self.background = Some(Background::Image(value));
     self
   }
 
   // 表示する文字列。
-  fn text(self, value: String) -> Self {
+  pub fn text(self, value: String) -> Self {
     self.text = Some(value);
     self
   }
 
   // CSS の font-family としてそのまま使うフォント名。
-  fn text_font(self, value: String) -> Self {
+  pub fn text_font(self, value: String) -> Self {
     self.text_font = Some(value);
     self
   }
 
-  fn text_size(self, value: UiSize) -> Self {
+  pub fn text_size(self, value: UiSize) -> Self {
     self.text_size = Some(value);
     self
   }
 
   // 100〜900。
-  fn text_weight(self, value: Uint) -> Self {
+  pub fn text_weight(self, value: Uint) -> Self {
     self.text_weight = Some(value);
     self
   }
 
-  fn text_color(self, value: Color) -> Self {
+  pub fn text_color(self, value: Color) -> Self {
     self.text_color = Some(value);
     self
   }
 
   // 木を辿って syscall を発行する。子を持てないため push_child は発行しない。
-  fn materialize(self) -> Uint {
-    let id = sys_ui_create(element_kind_link());
+  pub(super) fn materialize(self) -> UiId {
+    let id = ui_create(self.into());
     apply_id(id, self.id);
     apply_layout_properties(
       id, self.width, self.height,
@@ -153,7 +153,7 @@ impl[S] Link[S] {
       self.background,
     );
     apply_text_properties(id, self.text, self.text_font, self.text_size, self.text_weight, self.text_color);
-    sys_ui_set_property_with_string(id, property_kind_on_click_link(), 0, 0, 0.0, self.on_click_link);
+    ui_set_property(id, UiProperty::OnClickLink(self.on_click_link));
     id
   }
 }

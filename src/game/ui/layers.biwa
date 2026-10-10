@@ -9,34 +9,34 @@ import package::option::Option::Some;
 import package::option::Option::None;
 import package::convert::Into;
 import package::collections::Vec;
-import package::game::base_engine::sys_ui_create;
 import package::game::ui::UiElement;
 import package::game::ui::Layers;
-import package::game::ui::element_kind_layers;
 import package::game::ui::apply_id;
 import package::game::ui::push_children;
+import package::game::ui::UiId;
+import package::game::base_engine::ui_create;
 
 impl[S] Layers[S] {
   // 先頭が一番下のレイヤーになる。
-  fn new(children: Vec[UiElement[S]]) -> Self {
+  pub fn new(children: Vec[UiElement[S]]) -> Self {
     Self { children = children, id = None }
   }
 
   // 一番上にレイヤーを 1 枚足す。
-  fn push(self, child: UiElement[S]) -> Self {
+  pub fn push(self, child: UiElement[S]) -> Self {
     self.children.push(child);
     self
   }
 
   // すべての Element が持てる任意の識別子。
-  fn id(self, value: String) -> Self {
+  pub fn id(self, value: String) -> Self {
     self.id = Some(value);
     self
   }
 
   // 木を辿って syscall を発行する。子は下のレイヤーから順に積む。
-  fn materialize(self) -> Uint {
-    let id = sys_ui_create(element_kind_layers());
+  pub(super) fn materialize(self) -> UiId {
+    let id = ui_create(self.into());
     apply_id(id, self.id);
     push_children(id, self.children);
     id
