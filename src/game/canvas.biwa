@@ -856,3 +856,12 @@ pub struct Position {
   x: Cx,
   y: Cy,
 }
+
+impl Position {
+  pub(super) fn new(x: Cx, y: Cy) -> Self {
+    Self {
+      x = x,
+      y = y,
+    }
+  }
+}

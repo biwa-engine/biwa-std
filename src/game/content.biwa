@@ -49,6 +49,12 @@ pub struct ContentSpeed {
   text_per_sec: Float,
 }
 
+impl ContentSpeed {
+  pub fn text_per_sec(text_per_sec: Float) -> Self {
+    Self { text_per_sec = text_per_sec }
+  }
+}
+
 struct ContentSpeedLevel {
   // 設定された値(ContentSpeed)の何倍か
   // A multiple of the value configured for `std::game::config::Config.user.content_speed`.

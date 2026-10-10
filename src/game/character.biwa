@@ -59,7 +59,7 @@ impl[P] Character[P] {
   pub fn appear(self, layer: Uint, x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha) -> Self {
     self.current_visual =
       Some(self.default_visual.show_in_canvas(self.canvas(), layer, x, y, w, h, alpha));
-    self.current_position = Some(Position { x = x, y = y });
+    self.current_position = Some(Position::new(x, y));
 
     self
   }

@@ -150,7 +150,7 @@ impl GameMessageArea {
   // fn set_talker_image(self, image: Image);
 }
 
-pub(super) enum Size {
+pub enum Size {
   // All of these `Float` value must be positive.
   Vw(Float), // 100.0 means 100 % of viewport width.
   Vh(Float), // 100.0 means 100 % of viewport height.
