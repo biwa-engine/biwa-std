@@ -1,12 +1,3 @@
-// `ScenePage` (scene を映すページ) の impl。
-//
-// struct 定義は `game/ui.biwa` にある。`Window[S]` が 1 つだけ持ち (`Window::new` の引数)、
-// `SceneStartButton` が押されて scene が始まるときに表示される。Link では遷移できない。
-//
-// レイアウトは Page と同じく子 Element で自由に決める。scene の出力先 (Canvas / MessageArea) は
-// `new` で ID を必ず受け取り、実体は子孫として配置する。
-// 呼ばれるのは `Window::show` からだけを想定している。
-
 import package::string::String;
 import package::option::Option;
 import package::option::Option::Some;
@@ -16,7 +7,6 @@ import package::game::color::Color;
 import package::game::ui::Background;
 import package::game::ui::CanvasId;
 import package::game::ui::MessageAreaId;
-import package::game::ui::ScenePage;
 import package::game::ui::UiElement;
 import package::game::ui::apply_background;
 import package::game::ui::apply_id;
@@ -25,6 +15,23 @@ import package::game::ui::UiProperty;
 import package::game::ui::ScenePageId;
 import package::game::base_engine::ui_create_scene_page;
 import package::game::base_engine::ui_set_property;
+
+// scene を映すページ (`docs/ui-api.md` の改訂版)。Window が 1 つだけ持つ。
+//
+// Link では遷移できず、`SceneStartButton` が押されて scene が始まるときに表示される。
+// レイアウトは Page と同じく子 Element で自由に決める。
+//
+// scene の出力先 (`canvas` の Canvas API と `message_area` の Content API) は必ず受け取る。
+// 受け取るのは配置ではなく ID で、実体 (`Canvas` / `MessageArea`) は子孫として自分で配置する。
+// 配置し忘れ・ScenePage の外への配置はエンジンが止める (型では担保できないため)。
+
+pub struct ScenePage[S] {
+  canvas: CanvasId,
+  message_area: MessageAreaId,
+  children: Vec[UiElement[S]],
+  background: Option[Background],
+  id: Option[String],
+}
 
 impl[S] ScenePage[S] {
   // - `canvas` / `message_area`: scene の出力先 (`Canvas::canvas_id()` / `MessageArea::message_area_id()`)。

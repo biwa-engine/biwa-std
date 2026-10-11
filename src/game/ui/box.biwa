@@ -1,9 +1,3 @@
-// `Box` (子を 1 つまで持てる最も基本的な Element) の impl。
-//
-// struct 定義は `game/ui.biwa` にある。ビルダーメソッドは生成中・保持中の
-// 型安全性のために `Box` という具体型に直接生やす。`UiElement` へは
-// `Into[UiElement]` で、子として親に渡す最後の瞬間にだけ変換する。
-
 import package::string::String;
 import package::option::Option;
 import package::option::Option::Some;
@@ -15,11 +9,34 @@ import package::game::base_engine::ui_push_child;
 import package::game::ui::UiElement;
 import package::game::ui::UiSize;
 import package::game::ui::Background;
-import package::game::ui::Box;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_text_properties;
 import package::game::ui::apply_id;
 import package::game::ui::UiId;
+
+// 領域を区切る最も基本的な Element。子を 1 つまで持てる (無くてもよい)。
+// テキストも持てる (子と両方持つときはテキストが先に並ぶ)。
+
+pub struct Box[S] {
+  child: Option[UiElement[S]],
+  id: Option[String],
+  width: Option[UiSize],
+  height: Option[UiSize],
+  margin_left: Option[UiSize],
+  margin_right: Option[UiSize],
+  margin_top: Option[UiSize],
+  margin_bottom: Option[UiSize],
+  padding_left: Option[UiSize],
+  padding_right: Option[UiSize],
+  padding_top: Option[UiSize],
+  padding_bottom: Option[UiSize],
+  background: Option[Background],
+  text: Option[String],
+  text_font: Option[String],
+  text_size: Option[UiSize],
+  text_weight: Option[Uint],
+  text_color: Option[Color],
+}
 
 impl[S] Box[S] {
   // 子もテキストも持たない Box。`child` / `text` で後から足す。

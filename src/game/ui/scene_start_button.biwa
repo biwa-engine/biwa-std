@@ -1,10 +1,3 @@
-// `SceneStartButton` (押すと scene を始めるボタン) の impl。
-//
-// struct 定義は `game/ui.biwa` にある。見た目の property は `Link` と同じ。
-// 押されるとホストは `on_click` に `GameWindow` (Window の `ScenePage` の Canvas / MessageArea) を渡して
-// `Game[S]` を作らせ、ScenePage に遷移して Window の `main_scene` を始める
-// (`docs/ui-api.md` の改訂版、`docs/ui-api-impl-status.md` §19 R6)。
-
 import package::string::String;
 import package::option::Option;
 import package::option::Option::Some;
@@ -16,7 +9,6 @@ import package::game::ui::GameWindow;
 import package::game::ui::UiElement;
 import package::game::ui::UiSize;
 import package::game::ui::Background;
-import package::game::ui::SceneStartButton;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 import package::game::ui::apply_text_properties;
@@ -24,6 +16,32 @@ import package::game::ui::UiId;
 import package::game::base_engine::ui_create;
 import package::game::ui::UiEventHandler;
 import package::game::base_engine::ui_set_handler;
+
+// 押すと scene を始めるボタン。子は持てない。見た目の property は Link と同じ。
+//
+// 押されるとホストは `on_click` に `GameWindow` (Window の ScenePage の出力先) を渡して `Game[S]` を作らせ、
+// ScenePage を表示してから、その `Game[S]` で Window の `main_scene` を始める。
+
+pub struct SceneStartButton[S] {
+  on_click: fn(GameWindow) -> Game[S],
+  id: Option[String],
+  width: Option[UiSize],
+  height: Option[UiSize],
+  margin_left: Option[UiSize],
+  margin_right: Option[UiSize],
+  margin_top: Option[UiSize],
+  margin_bottom: Option[UiSize],
+  padding_left: Option[UiSize],
+  padding_right: Option[UiSize],
+  padding_top: Option[UiSize],
+  padding_bottom: Option[UiSize],
+  background: Option[Background],
+  text: Option[String],
+  text_font: Option[String],
+  text_size: Option[UiSize],
+  text_weight: Option[Uint],
+  text_color: Option[Color],
+}
 
 impl[S] SceneStartButton[S] {
   // `on_click` は押されたときに呼ばれ、`GameWindow` (scene の出力先の束) から `Game[S]` を作る。

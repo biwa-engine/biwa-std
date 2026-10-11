@@ -1,8 +1,3 @@
-// `Layers` (子を重ねる Element) の impl。
-//
-// struct 定義は `game/ui.biwa` にある。子は `push_children` が順に積むので、
-// 後から push したものほど上のレイヤーになる (エンジンが push された順に z を積み上げる)。
-
 import package::string::String;
 import package::option::Option;
 import package::option::Option::Some;
@@ -10,11 +5,21 @@ import package::option::Option::None;
 import package::convert::Into;
 import package::collections::Vec;
 import package::game::ui::UiElement;
-import package::game::ui::Layers;
 import package::game::ui::apply_id;
 import package::game::ui::push_children;
 import package::game::ui::UiId;
 import package::game::base_engine::ui_create;
+
+// 子を重ねる Element (`docs/ui-api.md` の `Layers`)。
+//
+// 子はそれぞれ Layers の親の中にいるのと同じように配置され、x / y 方向には
+// 互いに干渉しない。前後は push された順で決まり、**後から push したものほど上**になる
+// (`Layers::new(Vec::of(下)).push(上)`)。背景の Canvas の上にメッセージ枠を重ねる、
+// といった用途に使う。
+pub struct Layers[S] {
+  children: Vec[UiElement[S]],
+  id: Option[String],
+}
 
 impl[S] Layers[S] {
   // 先頭が一番下のレイヤーになる。

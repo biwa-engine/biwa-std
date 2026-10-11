@@ -1,10 +1,3 @@
-// `Page` の impl。
-//
-// struct 定義は `game/ui.biwa` にある。`Page` は `UiElement` の variant では
-// ないので (Window の子は Page のみ、という制約を型で表すため)、
-// 木の消費点は `UiElement::materialize` ではなくここの `materialize_into` になる。
-// 呼ばれるのは `Window::show` からだけを想定している。
-
 import package::string::String;
 import package::option::Option;
 import package::option::Option::Some;
@@ -13,7 +6,6 @@ import package::collections::Vec;
 import package::game::color::Color;
 import package::game::ui::UiElement;
 import package::game::ui::Background;
-import package::game::ui::Page;
 import package::game::ui::push_children;
 import package::game::ui::apply_background;
 import package::game::ui::apply_id;
@@ -22,6 +14,19 @@ import package::game::ui::UiProperty;
 import package::game::base_engine::ui_create_page;
 import package::game::base_engine::ui_set_property;
 import package::game::base_engine::ui_push_child;
+
+// ページ。Window の子として、page_id で区別され、Link で遷移できる。
+// `Page` は `UiElement` の variant では
+// ないので (Window の子は Page のみ、という制約を型で表すため)、
+// 木の消費点は `UiElement::materialize` ではなくここの `materialize_into` になる。
+// 呼ばれるのは `Window::show` からだけを想定している。
+
+pub struct Page[S] {
+  page_id: String,
+  children: Vec[UiElement[S]],
+  background: Option[Background],
+  id: Option[String],
+}
 
 impl[S] Page[S] {
   pub fn new(page_id: String, children: Vec[UiElement[S]]) -> Self {

@@ -1,9 +1,3 @@
-// `MessageArea` (Content API の出力先になる Element) の impl。
-//
-// struct 定義は `game/ui.biwa` にある。出力先としての ui_id は、
-// ランタイムが `GameWindow` (`GameMessageArea`) に詰めて `SceneStartButton` の `on_click` に渡す
-// (ScenePage の MessageArea のとき)。
-
 import package::string::String;
 import package::option::Option;
 import package::option::Option::Some;
@@ -13,12 +7,32 @@ import package::game::color::Color;
 import package::game::ui::UiElement;
 import package::game::ui::UiSize;
 import package::game::ui::Background;
-import package::game::ui::MessageArea;
 import package::game::ui::MessageAreaId;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 import package::game::ui::UiId;
 import package::game::base_engine::ui_create_message_area;
+
+// Content API (ノベル表現) の出力先になる Element。子は持てない。
+//
+// scene の生テキストや `$` の埋め込み式はここに出る。`GameMessageArea` がこの ui_id を持つ。
+//
+// `Canvas` と同じく、`MessageArea::new()` の時点で UI Element を作る (`message_area_id()` のため)。
+pub struct MessageArea[S] {
+  ui_id: UiId,
+  id: Option[String],
+  width: Option[UiSize],
+  height: Option[UiSize],
+  margin_left: Option[UiSize],
+  margin_right: Option[UiSize],
+  margin_top: Option[UiSize],
+  margin_bottom: Option[UiSize],
+  padding_left: Option[UiSize],
+  padding_right: Option[UiSize],
+  padding_top: Option[UiSize],
+  padding_bottom: Option[UiSize],
+  background: Option[Background],
+}
 
 impl[S] MessageArea[S] {
   // この時点で UI Element を作る (`message_area_id()` のため)。どこにも繋がらず、property もまだ無い。
