@@ -2,46 +2,13 @@
 //
 // エンジンの API はシステムコールにあたる。呼ぶとエンジン側 (kernel land) に入る。
 //
-// - 中断する syscall (クリック待ちなど) は、scene から `yield` で発行される。
-//   ここにある関数は「レジスタに積む」役だけを持ち、syscall の記述子を組み立てて返す。
-//   実際に制御を渡す `yield` 命令はコンパイラが scene の中に置く。
-//   中断できるのは generator である scene だけなので、この形になる。
-// - 中断しない syscall (画像を出す、名前を変える) は普通の関数呼び出しでよい。
-//   エンジンの API をそのまま呼び、積んで即座に返る。
+// - 中断する syscall (クリック待ちなど) は、完了までブロックするホスト関数の呼び出しである。
+// - 中断しない syscall (画像を出す、名前を変える) は、積んで即座に返るホスト関数の呼び出しである。
 //
 // エンジンとの ABI は可能な限りこのモジュールに隠蔽し、
 // std の他のモジュールでは抽象化された状態で扱えるようにする
 
-// `@biwa/engine/*` は生成物の配置場所に依存しないための論理パスで、
-// Biwa CLI が用意する Vite の alias / tsconfig の paths によって
-// 実際のエンジン実装 (`.biwa_runtime/src/engine/...`) へ解決される。
-[[native(arch="typescript")]]
-{{
-  import {
-    addTransition,
-    allocObjectId,
-    createObject,
-    deleteObject,
-    startTransitions,
-  } from "@biwa/engine/api/object";
-  import {
-    clearContent,
-    flushContent,
-    pushContentText,
-  } from "@biwa/engine/api/message";
-  import {
-    allocUiId,
-    createUiElement,
-    pushUiChild,
-    setUiHandler,
-    setUiProperty,
-    setUiPropertyString,
-  } from "@biwa/engine/api/ui";
-  import { retainHandler } from "@biwa/engine/api/handler";
-  import { Sys, type BiwaSyscall } from "@biwa/engine/vm/syscall";
-}}
-
-// wasm ではエンジンの API をホスト関数の import として宣言する。
+// エンジンの API をホスト関数の import として宣言する。
 //
 // import の名前空間 (`biwa:engine`) は std とエンジンが合意するものであり、
 // コンパイラは関知しない。コンパイラはこの宣言をそのまま生成物の先頭に置く。
@@ -49,7 +16,6 @@
 // wasm には中断の仕組みが無く、その必要も無い。
 // エンジン呼び出しは同期的なホスト関数の呼び出しで、
 // 完了までブロックするか積んで即座に返るかはエンジンの都合である。
-// したがって typescript 版と違い syscall の記述子を返さない。
 [[native(arch="wasm")]]
 {{
   ;; Content API。第一引数は出力先の MessageArea の ui_id。
@@ -131,25 +97,6 @@ import package::game::ui::UiEventHandler;
 import package::game::ui::GameCanvas;
 import package::time::Duration;
 
-// syscall の記述子。中身はエンジンとの規約であり、Biwa 側からは不透明。
-[[lang="syscall"]]
-[[native(arch="typescript")]]
-type Syscall = {{
-  BiwaSyscall
-}};
-
-// wasm では syscall の記述子という概念が要らない
-// (エンジン呼び出しがそのままホスト関数の呼び出しになる) が、
-// lang item `syscall` は今のところターゲットに関係なく要求されるので、
-// 満たすためだけのダミーを置いておく。
-//
-// TODO: 要求する lang item を arch ごとに変えられるようにして、これを消す。
-[[lang="syscall"]]
-[[native(arch="wasm")]]
-type Syscall = {{
-  i32
-}};
-
 // --- canvas オブジェクト ---------------------------------------------------
 //
 // 座標は canvas の中央が原点で、x は右が正、y は**上が正**である。
@@ -173,17 +120,6 @@ type Syscall = {{
 //
 // 読み込みは非同期だが、この呼び出しは待たない。
 // 読み込みに失敗しても id は返る (ゲーム側にできることが無いため)。
-[[native(arch="typescript")]]
-fn sys_create_object(
-  canvas_ui_id: Uint,
-  path: String, layer: Uint,
-  x: Float, y: Float, w: Float, h: Float, alpha: Uint, theta: Float,
-) -> Uint {{
-  const id = allocObjectId();
-  createObject(id, canvas_ui_id, path, layer, x, y, w, h, alpha, theta);
-  return id;
-}}
-
 [[native(arch="wasm")]]
 fn sys_create_object(
   canvas_ui_id: Uint,
@@ -215,11 +151,6 @@ pub(super) fn create_object(
 //
 // 完全に透明にしただけでは資源は解放されない。
 // 消えるアニメーションを出したあとは、その終わりに合わせてこれを呼ぶ。
-[[native(arch="typescript")]]
-fn sys_delete_object(id: Uint, after: Uint) {{
-  deleteObject(id, after);
-}}
-
 [[native(arch="wasm")]]
 fn sys_delete_object(id: Uint, after: Uint) {{
   local.get 0
@@ -240,13 +171,6 @@ pub(super) fn delete_object(id: Uint, after: Duration) {
 // alpha は 0-255、theta は度)。値は `val_i` (整数) と `val_f` (浮動小数) の 2 枠で渡し
 // (`sys_ui_set_property` と同じ運用)、使わない方は 0 で埋める。
 // alpha は `val_i`、x / y / w / h / theta は `val_f` を使う (エンジンもそう読む)。
-[[native(arch="typescript")]]
-fn sys_add_transition(
-  id: Uint, param: Uint, kind: Uint, val_i: Int, val_f: Float, after: Uint, duration: Uint,
-) {{
-  addTransition(id, param, kind, val_i, val_f, after, duration);
-}}
-
 [[native(arch="wasm")]]
 fn sys_add_transition(
   id: Uint, param: Uint, kind: Uint, val_i: Int, val_f: Float, after: Uint, duration: Uint,
@@ -465,11 +389,6 @@ pub(super) fn add_theta_transition(id: Uint, transition: CanvasObjectThetaTransi
 //
 // `sync` が 0 でなければ、この演出はテキストの進行と結びつく。
 // クリックはまずこれを完了させ、`await_transitions` が待つ対象にもなる。
-[[native(arch="typescript")]]
-fn sys_start_transitions(sync: Uint) {{
-  startTransitions(sync);
-}}
-
 [[native(arch="wasm")]]
 fn sys_start_transitions(sync: Uint) {{
   local.get 0
@@ -490,17 +409,12 @@ pub(super) fn start_transitions(sync: CanvasObjectTransitionSyncMode) {
 }
 
 // sync 印の演出がすべて終わるまでシーンを止める。
-//
-// NOTE: wasm ターゲット専用である。TypeScript ターゲットで `yield` を置けるのは
-// 今のところ novel statement の展開先だけで、任意の呼び出しを中断させる手段が
-// コンパイラに無い。
 [[native(arch="wasm")]]
 pub(super) fn await_transitions() {{
   call $sys_await_transitions
 }}
 
 // エンジン時計の上で指定時間シーンを止める (ポーズ中は進まない)。
-// `await_transitions` と同じく wasm ターゲット専用。
 [[native(arch="wasm")]]
 pub(super) fn sleep(ms: Uint) {{
   local.get 0
@@ -524,17 +438,6 @@ pub(super) fn sleep(ms: Uint) {{
 // - 色は `r` / `g` / `b` / `a` の 4 つに割って渡す。
 //   1 語に詰めないのは、biwa にビット演算が無く、
 //   算術で詰めると `a` が i32 の符号を跨ぐためである
-[[native(arch="typescript")]]
-fn sys_content_push_text(
-  ui_id: Uint,
-  text: String, speed: Float,
-  size_unit: Uint, size_value: Float,
-  weight: Uint,
-  r: Uint, g: Uint, b: Uint, a: Uint,
-) {{
-  pushContentText(ui_id, text, speed, size_unit, size_value, weight, r, g, b, a);
-}}
-
 [[native(arch="wasm")]]
 fn sys_content_push_text(
   ui_id: Uint,
@@ -557,11 +460,6 @@ fn sys_content_push_text(
 }}
 
 // 積まれた content をまとめて出し始める。
-[[native(arch="typescript")]]
-fn sys_content_flush(ui_id: Uint) {{
-  flushContent(ui_id);
-}}
-
 [[native(arch="wasm")]]
 fn sys_content_flush(ui_id: Uint) {{
   local.get 0
@@ -573,11 +471,6 @@ fn sys_content_flush(ui_id: Uint) {{
 // **エンジンは自分の判断でクリアしない。** いつ消えるかを決めるのは std である
 // (決めたこと 2)。待っても消したくない API を将来足すときに、
 // 変更がエンジンまで波及しないようにするための切り分けである。
-[[native(arch="typescript")]]
-fn sys_content_clear(ui_id: Uint) {{
-  clearContent(ui_id);
-}}
-
 [[native(arch="wasm")]]
 fn sys_content_clear(ui_id: Uint) {{
   local.get 0
@@ -615,15 +508,6 @@ pub(super) fn content_clear(message_area: UiId) {
 
 // クリックが来るまで待つ。
 // エンジンはクリックが来るまで scene を再開しない。
-//
-// NOTE: TypeScript ターゲットでは動かない。記述子を返しても、
-// これを呼ぶ `content_flush_and_wait` は普通の関数なので
-// コンパイラが `yield` を置かない (`docs/content-api.md` の段 2 を参照)。
-[[native(arch="typescript")]]
-pub(super) fn wait() -> Syscall {{
-  return { sys: Sys.Wait, args: [] };
-}}
-
 [[native(arch="wasm")]]
 pub(super) fn wait() {{
   call $sys_wait
@@ -634,11 +518,6 @@ pub(super) fn wait() {{
 // エンジン呼び出しではなく、wasm の値に対する操作である。
 // `String` の実体はホスト側にしか無いので、数値から作るのもホストに頼む。
 
-[[native(arch="typescript")]]
-pub(package) fn int_to_string(val: Int) -> String {{
-  return String(val);
-}}
-
 [[native(arch="wasm")]]
 pub(package) fn int_to_string(val: Int) -> String {{
   local.get 0
@@ -646,20 +525,10 @@ pub(package) fn int_to_string(val: Int) -> String {{
 }}
 
 // 整数を浮動小数にする。値の変換で、エンジンは呼ばない。
-[[native(arch="typescript")]]
-pub(package) fn int_to_float(val: Int) -> Float {{
-  return val;
-}}
-
 [[native(arch="wasm")]]
 pub(package) fn int_to_float(val: Int) -> Float {{
   local.get 0
   f32.convert_i32_s
-}}
-
-[[native(arch="typescript")]]
-pub(package) fn float_to_string(val: Float) -> String {{
-  return String(val);
 }}
 
 [[native(arch="wasm")]]
@@ -681,13 +550,6 @@ pub(package) fn float_to_string(val: Float) -> String {{
 //
 // `kind` は Element の種類 (Window / Page / Box / Link / Horizontal / ...)。
 // 積んで直ちに返る syscall なので、この呼び出しは待たない。
-[[native(arch="typescript")]]
-fn sys_ui_create(kind: Uint) -> Uint {{
-  const id = allocUiId();
-  createUiElement(id, kind);
-  return id;
-}}
-
 [[native(arch="wasm")]]
 fn sys_ui_create(kind: Uint) -> Uint {{
   local.get 0
@@ -742,16 +604,6 @@ pub(super) fn ui_create[S](ui: UiElement[S]) -> UiId {
 // property kind ごとに決まっている (例: width は val_u1 が単位、val_f が値)。
 // 使わない枠は 0 で埋める。immediate の 0 は費用がほぼ無いため、
 // property の組み合わせごとに syscall を分けるより、この形のほうが安い。
-[[native(arch="typescript")]]
-fn sys_ui_set_property(
-  ui_id: Uint, kind: Uint,
-  val_u1: Uint, val_u2: Uint, val_u3: Uint, val_u4: Uint,
-  val_i1: Int, val_i2: Int,
-  val_f: Float,
-) {{
-  setUiProperty(ui_id, kind, val_u1, val_u2, val_u3, val_u4, val_i1, val_i2, val_f);
-}}
-
 [[native(arch="wasm")]]
 fn sys_ui_set_property(
   ui_id: Uint, kind: Uint,
@@ -772,15 +624,6 @@ fn sys_ui_set_property(
 }}
 
 // 文字列を伴う property を設定する (例: Page の page_id, Link の on_click_link)。
-[[native(arch="typescript")]]
-fn sys_ui_set_property_with_string(
-  ui_id: Uint, kind: Uint,
-  val_u: Uint, val_i: Int, val_f: Float,
-  val_s: String,
-) {{
-  setUiPropertyString(ui_id, kind, val_u, val_i, val_f, val_s);
-}}
-
 [[native(arch="wasm")]]
 fn sys_ui_set_property_with_string(
   ui_id: Uint, kind: Uint,
@@ -800,11 +643,6 @@ fn sys_ui_set_property_with_string(
 //
 // 親が子を複数持てるなら末尾に追加、1つのみ持てるなら既存を置き換え、
 // 持てないなら子はツリーから削除される (`docs/ui-api.md` の Syscall 節)。
-[[native(arch="typescript")]]
-fn sys_ui_push_child(parent: Uint, child: Uint) {{
-  pushUiChild(parent, child);
-}}
-
 [[native(arch="wasm")]]
 fn sys_ui_push_child(parent: Uint, child: Uint) {{
   local.get 0
@@ -828,11 +666,6 @@ pub(super) fn ui_push_child(parent: UiId, child: UiId) {
 //
 // 今は引数 1 つの関数だけを扱う (要るものがそれだけなので)。
 // 他の個数が要れば、個数ごとに native を足す (wasm の import は同じでよい)。
-[[native(arch="typescript")]]
-fn sys_ui_set_handler[A, R](ui_id: Uint, kind: Uint, f: fn(A) -> R) {{
-  setUiHandler(ui_id, kind, retainHandler(f));
-}}
-
 [[native(arch="wasm")]]
 fn sys_ui_set_handler[A, R](ui_id: Uint, kind: Uint, f: fn(A) -> R) {{
   local.get 0
