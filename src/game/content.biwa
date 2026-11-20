@@ -15,6 +15,7 @@ import package::game::ui::MessageAreaHandle;
 import package::game::base_engine::int_to_string;
 import package::game::base_engine::float_to_string;
 import package::game::Game;
+import package::time::Duration;
 
 pub enum Content {
   Text(TextContent),
@@ -151,6 +152,12 @@ fn content_flush_and_wait[S](game: Game[S]) {
   // 共通のイベントハンドラをエンジン側が呼び、種類ごとに振り分ける形などが考えられる。
   // game.window.wait_event(Event::MouseClickLeft);
   game.window.wait();
+  // ボイスは `>>` で止める (止めるのは std。エンジンはクリックで音を止めない)。
+  // プレイヤーが「ボイスを続ける」にしていれば止めない。
+  if game.window.config().user().voice_continues() {
+  } else {
+    game.window.sound().voice().stop_all(Duration::ms(0));
+  }
   // **クリアするのはここである。** エンジンは自分の判断で消さない。
   // 「待つが消さない」API を将来足すときに、
   // 変更がコンパイラと std に閉じるようにするための切り分けである。

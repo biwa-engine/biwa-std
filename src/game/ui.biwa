@@ -20,6 +20,7 @@ import package::collections::Vec;
 import package::game::Game;
 import package::game::Scene;
 import package::game::config::Config;
+import package::game::sound::SoundBuses;
 import package::game::font::TextWeight;
 import package::game::color::Color;
 import package::game::base_engine::content_push_text;
@@ -80,16 +81,19 @@ pub struct WindowHandle {
   message_area: MessageAreaHandle,
   // ゲームの設定 (`Window::config`)。プレイヤーが変える `UserConfig` もここにあり、プレイをまたいで続く。
   config: Config,
+  // 音のバスの木 (`Window::sound`。既定は `SoundBuses::standard()`)。出力に繋がっていて、プレイをまたいで続く。
+  sound: SoundBuses,
 }
 
 impl WindowHandle {
   // `Window::show()` だけが作る。出力先は ScenePage が必ず受け取るものなので `Option` ではない
   // (ScenePage の子孫に実体が置かれているかはエンジンが確かめる)。
-  pub(super) fn new(canvas: CanvasId, message_area: MessageAreaId, config: Config) -> Self {
+  pub(super) fn new(canvas: CanvasId, message_area: MessageAreaId, config: Config, sound: SoundBuses) -> Self {
     Self {
       canvas = CanvasHandle { ui_id = canvas.ui_id() },
       message_area = MessageAreaHandle { ui_id = message_area.ui_id() },
       config = config,
+      sound = sound,
     }
   }
 
@@ -111,6 +115,11 @@ impl WindowHandle {
   // 返るのは Window が持つものそのもの (コピーではない) なので、書き換えれば Window の側にも効く。
   pub(super) fn config(self) -> Config {
     self.config
+  }
+
+  // 音のバスの木。返るのは Window が持つものそのもの。
+  pub(super) fn sound(self) -> SoundBuses {
+    self.sound
   }
 
   // fn width(self) -> Uint;
