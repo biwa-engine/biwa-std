@@ -135,10 +135,10 @@ fn content_push[C: Into[Content], S](game: Game[S], content: C) {
     Content::Text(text) => {
       message_area_of(game).push_text(
         text.text,
-        resolved_speed(game.config, text.speed),
-        resolved_size(game.config, text.size),
+        resolved_speed(game.window.config(), text.speed),
+        resolved_size(game.window.config(), text.size),
         text.weight,
-        resolved_color(game.config, text.color),
+        resolved_color(game.window.config(), text.color),
       );
     }
   }

@@ -1,5 +1,9 @@
-// Game に与える設定
-// configuration given to `struct Game`.
+// ゲームの設定
+// configuration of the game.
+//
+// `Window` に与え (`Window::config`)、`WindowHandle` が持つ。`Game` は `WindowHandle` 経由でこれを読む。
+// 設定はプレイをまたいで (Window の寿命で) 続くものなので、`Game` ではなく Window の側に置いている。
+// struct は参照なので、`UserConfig` を書き換えれば、同じ Window を指すすべての持ち主から変わって見える。
 
 import package::game::color::Color;
 import package::game::ui::Size;
@@ -54,6 +58,11 @@ impl Config {
 
   pub(super) fn user(self) -> UserConfig {
     self.user
+  }
+
+  // `DeveloperConfig::default()` から作った設定。`Window` に設定を与えなかったときはこれになる。
+  pub fn default() -> Self {
+    Config::new(DeveloperConfig::default())
   }
 
   pub fn new(dev: DeveloperConfig) -> Self {

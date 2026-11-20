@@ -19,6 +19,7 @@ import package::option::Option::None;
 import package::collections::Vec;
 import package::game::Game;
 import package::game::Scene;
+import package::game::config::Config;
 import package::game::font::TextWeight;
 import package::game::color::Color;
 import package::game::base_engine::content_push_text;
@@ -77,15 +78,18 @@ pub struct WindowHandle {
   canvas: CanvasHandle,
   // Content API の出力先 (Window の ScenePage の MessageArea)。
   message_area: MessageAreaHandle,
+  // ゲームの設定 (`Window::config`)。プレイヤーが変える `UserConfig` もここにあり、プレイをまたいで続く。
+  config: Config,
 }
 
 impl WindowHandle {
   // `Window::show()` だけが作る。出力先は ScenePage が必ず受け取るものなので `Option` ではない
   // (ScenePage の子孫に実体が置かれているかはエンジンが確かめる)。
-  pub(super) fn new(canvas: CanvasId, message_area: MessageAreaId) -> Self {
+  pub(super) fn new(canvas: CanvasId, message_area: MessageAreaId, config: Config) -> Self {
     Self {
       canvas = CanvasHandle { ui_id = canvas.ui_id() },
       message_area = MessageAreaHandle { ui_id = message_area.ui_id() },
+      config = config,
     }
   }
 
@@ -102,6 +106,11 @@ impl WindowHandle {
 
   pub(super) fn message_area(self) -> MessageAreaHandle {
     self.message_area
+  }
+
+  // 返るのは Window が持つものそのもの (コピーではない) なので、書き換えれば Window の側にも効く。
+  pub(super) fn config(self) -> Config {
+    self.config
   }
 
   // fn width(self) -> Uint;

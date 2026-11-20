@@ -15,7 +15,6 @@ import canvas::CanvasObject;
 import canvas::Position;
 import ui::WindowHandle;
 import ui::CanvasHandle;
-import config::Config;
 
 // 進行中のノベルゲームを表す構造体
 // S: ゲーム内で(セーブ、ロードも関係なく)継続して保持したい状態をいくつもメンバに含む構造体
@@ -29,13 +28,11 @@ import config::Config;
 pub struct Game[S] {
   name: String, // ゲームの名前
   states: S,
-  window: WindowHandle,
-
-  // 文字速度・サイズ・色などの設定。
+  // Window の寿命のものの束。プレイの間持ち続け、Window への副作用の経路にする。
   //
-  // **エンジンは設定を持たない。** std がここを読んで絶対値に直してから
-  // syscall に渡す。
-  config: Config,
+  // 文字速度・サイズ・色などの設定 (`Config`) もここにある (`window.config()`)。
+  // **エンジンは設定を持たない。** std がそれを読んで絶対値に直してから syscall に渡す。
+  window: WindowHandle,
 }
 
 // scene の型。scene は `Game[S]` を受け取って (状態を進めた) `Game[S]` を返す関数である。
@@ -48,12 +45,13 @@ impl[S] Game[S] {
   // `window` は `Window::show()` が作ってランタイムに預け、ランタイムが `SceneStartButton` の
   // `on_click(window)` にそのまま渡したもの。ゲーム側はそれをそのままここに渡す
   // (作り直さないこと。共有が切れる。`WindowHandle` のコメント参照)。
-  pub fn new(window: WindowHandle, name: String, states: S, config: Config) -> Self {
+  //
+  // 設定 (`Config`) は `Window::config` で与える (プレイをまたいで続くので Window の側に置く)。
+  pub fn new(window: WindowHandle, name: String, states: S) -> Self {
     Self {
       name = name,
       states = states,
       window = window,
-      config = config,
     }
   }
 
