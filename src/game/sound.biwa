@@ -1,0 +1,655 @@
+// 音 (BGM・SE・環境音・ボイス)。仕様は `docs/sound.md`。
+//
+// - `Sound` は音のファイル 1 つ (syscall を出さない)。`SoundObject` は再生 1 回。
+// - 音はバス (`Bus`) を通る。バスは木で、音量と effect の列を持つ。根 (master) だけを出力に繋ぐ。
+// - 音量はすべて dB (`Volume`)。経路に沿って足し算になる。-60 dB 以下は無音。
+// - 位置 (`Position`) は x (左右) と y (前後) の 2 軸で、どちらも -1.0..1.0。ステレオでは y は捨てられる。
+// - 開始・停止・変化は canvas の遷移と同じく、積んでから発火する (`sys_start_transitions`)。
+//
+// 既定の木 (`SoundBuses::standard()`) は Window の寿命のもので、`WindowHandle` が `Game` に運ぶ。
+// ゲームからは `g.play_se(..)` / `g.change_bgm(..)` / `g.sound().buses().se()` のように使う。
+
+import package::string::String;
+import package::option::Option;
+import package::option::Option::Some;
+import package::option::Option::None;
+import package::time::Duration;
+import package::game::Game;
+import package::game::config::Config;
+import package::game::base_engine::sound_bus_create;
+import package::game::base_engine::sound_bus_add_effect;
+import package::game::base_engine::sound_bus_attach;
+import package::game::base_engine::sound_output_attach;
+import package::game::base_engine::sound_bus_add_stop_all;
+import package::game::base_engine::sound_bus_delete;
+import package::game::base_engine::sound_bus_add_transition;
+import package::game::base_engine::sound_bus_set_param;
+import package::game::base_engine::sound_effect_add_transition;
+import package::game::base_engine::sound_effect_set_param;
+import package::game::base_engine::sound_create;
+import package::game::base_engine::sound_add_start;
+import package::game::base_engine::sound_add_stop;
+import package::game::base_engine::sound_add_transition;
+import package::game::base_engine::sound_preload;
+import package::game::base_engine::sound_fire;
+import package::game::base_engine::sound_await;
+import package::game::base_engine::uint_to_float;
+import package::game::base_engine::string_eq;
+
+// 遷移の kind の番号 (canvas と同じ。engine の `api/transition.ts`)。
+fn linear_kind() -> Uint { 1 }
+
+// --- 音量と位置 ---------------------------------------------------------------
+
+// 音量。dB (デシベル) で持つ。0 dB は「そのまま」、-6 dB はおよそ半分の振幅。-60 dB 以下は無音。
+pub struct Volume {
+  db: Float,
+}
+
+impl Volume {
+  pub fn db(db: Float) -> Self {
+    Self { db = db }
+  }
+
+  // プレイヤーの設定画面のような 0〜100 の値。`40 * log10(p / 100)` dB に直す
+  // (100 → 0 dB、50 → -12 dB、25 → -24 dB、10 → -40 dB、0 → 無音)。
+  pub fn percent(p: Uint) -> Self {
+    if p == 0 {
+      Volume::silent()
+    } else {
+      let ratio = uint_to_float(p) / 100.0;
+      Self { db = 40.0 * log10(ratio) }
+    }
+  }
+
+  // 無音 (-60 dB)。フェードの端点にも使う。
+  pub fn silent() -> Self {
+    Self { db = -60.0 }
+  }
+
+  pub fn as_db(self) -> Float {
+    self.db
+  }
+}
+
+// 音の位置。x は -1.0 (左) 〜 1.0 (右)、y は -1.0 (後ろ) 〜 1.0 (前)。
+// canvas の座標 (-50..50) とは別の量である (画面の中の場所ではなく、スピーカに対する方向)。
+pub struct Position {
+  x: Float,
+  y: Float,
+}
+
+impl Position {
+  pub fn center() -> Self { Self { x = 0.0, y = 0.0 } }
+  pub fn left() -> Self { Self { x = -1.0, y = 0.0 } }
+  pub fn right() -> Self { Self { x = 1.0, y = 0.0 } }
+  pub fn at(x: Float, y: Float) -> Self { Self { x = x, y = y } }
+}
+
+// ループの区間。2 回目以降は `start` から鳴る。`end` が None ならファイルの終わり。
+pub struct LoopRange {
+  start: Duration,
+  end: Option[Duration],
+}
+
+// --- Sound と SoundObject -----------------------------------------------------
+
+// 音のファイル 1 つ。syscall を出さない (鳴らすまで何も起きない)。
+// パスはパッケージの `assets/` 基準の相対パス。形式は MP3・WAV (PCM)・Ogg Vorbis (`docs/sound.md` の Tier)。
+pub struct Sound {
+  path: String,
+  volume: Volume,
+  position: Position,
+  loop_range: LoopRange,
+}
+
+impl Sound {
+  pub fn new(path: String) -> Self {
+    Self {
+      path = path,
+      volume = Volume::db(0.0),
+      position = Position::center(),
+      loop_range = LoopRange { start = Duration::ms(0), end = None },
+    }
+  }
+
+  pub fn with_volume(self, v: Volume) -> Self {
+    self.volume = v;
+    self
+  }
+
+  pub fn with_position(self, p: Position) -> Self {
+    self.position = p;
+    self
+  }
+
+  // ループの区間 (BGM の前奏を飛ばして繰り返すときなど)。
+  pub fn with_loop(self, start: Duration, end: Option[Duration]) -> Self {
+    self.loop_range = LoopRange { start = start, end = end };
+    self
+  }
+
+  // 読み込みを先に始めておく (最初に鳴らすときに待たないように)。
+  pub fn preload(self) {
+    sound_preload(self.path);
+  }
+
+  pub(package) fn path(self) -> String {
+    self.path
+  }
+
+  // `bus` で `repeat` 回鳴らす (0 は無限)。
+  pub fn play_on(self, bus: Bus, repeat: Uint) -> SoundObject {
+    let object = self.create_on(bus, FALSE, self.volume);
+    object.queue_start(repeat);
+    sound_fire(0);
+    object
+  }
+
+  // `bus` で、無音から `d` かけて大きくしながら鳴らす。
+  pub fn fade_in_on(self, bus: Bus, repeat: Uint, d: Duration) -> SoundObject {
+    let object = self.create_on(bus, FALSE, Volume::silent());
+    object.queue_start(repeat);
+    object.queue_volume(self.volume, d);
+    sound_fire(0);
+    object
+  }
+
+  // SoundObject を作る (まだ鳴らない)。`normalize` はラウドネス正規化 (段 2) の指定。
+  pub(package) fn create_on(self, bus: Bus, normalize: Bool, initial: Volume) -> SoundObject {
+    let loop_end = match self.loop_range.end {
+      Some(end) => end.as_ms(),
+      None => 0,
+    };
+    let id = sound_create(
+      self.path, bus.id(), initial.as_db(), self.position.x, self.position.y,
+      self.loop_range.start.as_ms(), loop_end, flag(normalize));
+    SoundObject { id = id, volume = self.volume }
+  }
+}
+
+// 再生 1 回。終われば (止めれば) エンジンが解放する。
+//
+// `volume` は最後に発火した目標の音量 (今の音量はエンジンからは取れない)。
+pub struct SoundObject {
+  id: Uint,
+  volume: Volume,
+}
+
+impl SoundObject {
+  pub fn stop(self) {
+    sound_add_stop(self.id, 0);
+    sound_fire(0);
+  }
+
+  pub fn stop_after(self, after: Duration) {
+    sound_add_stop(self.id, after.as_ms());
+    sound_fire(0);
+  }
+
+  // 無音まで `d` かけて下げてから止める。
+  pub fn fade_out(self, d: Duration) {
+    self.queue_fade_out(d);
+    sound_fire(0);
+  }
+
+  pub fn fade_to(self, v: Volume, d: Duration) -> Self {
+    self.queue_volume(v, d);
+    sound_fire(0);
+    self
+  }
+
+  pub fn move_to(self, p: Position, d: Duration) -> Self {
+    sound_add_transition(self.id, 1, linear_kind(), p.x, 0, d.as_ms());
+    sound_add_transition(self.id, 2, linear_kind(), p.y, 0, d.as_ms());
+    sound_fire(0);
+    self
+  }
+
+  // --- 積むだけ (発火は呼んだ側) ---
+
+  pub(package) fn queue_start(self, repeat: Uint) {
+    sound_add_start(self.id, 0, 0, repeat);
+  }
+
+  pub(package) fn queue_volume(self, v: Volume, d: Duration) {
+    self.volume = v;
+    sound_add_transition(self.id, 0, linear_kind(), v.as_db(), 0, d.as_ms());
+  }
+
+  pub(package) fn queue_fade_out(self, d: Duration) {
+    sound_add_transition(self.id, 0, linear_kind(), -60.0, 0, d.as_ms());
+    sound_add_stop(self.id, d.as_ms());
+  }
+}
+
+// --- Bus と effect ------------------------------------------------------------
+
+// バス。音を束ねて音量と effect を掛ける経路で、入れ子 (木) にできる。
+//
+// 作って (`Bus::new()`)、effect を挿し (`add_*`)、親に繋ぐ (`attach`)。
+// **effect は繋ぐ前にしか挿せない** (繋いだ後に挿すとエンジンが警告して無視する)。
+// 根 (master) だけは `attach_to_output()` で出力に繋ぐ。根は 1 本だけ。
+//
+// third party のライブラリも、std のバスの下に自由にバスを足してよい。
+pub struct Bus {
+  id: Uint,
+  // 最後に設定した音量 (stop_all のフェードの後に戻す値)。
+  volume: Volume,
+}
+
+impl Bus {
+  pub fn new() -> Self {
+    Self { id = sound_bus_create(), volume = Volume::db(0.0) }
+  }
+
+  pub(package) fn id(self) -> Uint {
+    self.id
+  }
+
+  // 帯域制限 (low_cut 〜 high_cut だけを通す)。初めは何も削らない。
+  pub fn add_pass_filter(self, slope: FilterSlope) -> PassFilter {
+    let cfg = match slope {
+      FilterSlope::Gentle => 0,
+      FilterSlope::Steep => 1,
+    };
+    PassFilter { id = sound_bus_add_effect(self.id, 1, cfg, 0) }
+  }
+
+  pub fn add_compressor(self, threshold: Volume, ratio: Float, attack: Duration, release: Duration) -> Compressor {
+    let c = Compressor { id = sound_bus_add_effect(self.id, 20, 0, 0) };
+    sound_effect_set_param(c.id, 0, threshold.as_db());
+    sound_effect_set_param(c.id, 1, ratio);
+    sound_effect_set_param(c.id, 2, uint_to_float(attack.as_ms()));
+    sound_effect_set_param(c.id, 3, uint_to_float(release.as_ms()));
+    c
+  }
+
+  // 割れ (クリッピング) を防ぐリミッタ。master の最後に挿す。
+  pub fn add_limiter(self) -> Compressor {
+    self.add_compressor(Volume::db(-1.0), 20.0, Duration::ms(1), Duration::ms(100))
+  }
+
+  // `key` のバス (とその子孫) で音が鳴っている間、このバスを下げる (ダッキング)。
+  // 初めの下げ幅は 0 dB (何もしない)。`Duck::set` で決める。
+  pub fn add_duck(self, key: Bus) -> Duck {
+    Duck { id = sound_bus_add_effect(self.id, 30, key.id, 0) }
+  }
+
+  pub fn attach(self, parent: Bus) -> Self {
+    sound_bus_attach(self.id, parent.id);
+    self
+  }
+
+  // 根として出力に繋ぐ。
+  pub fn attach_to_output(self) -> Self {
+    sound_output_attach(self.id);
+    self
+  }
+
+  // すぐに音量を設定する (発火を待たない)。
+  pub fn set_volume(self, v: Volume) {
+    self.volume = v;
+    sound_bus_set_param(self.id, 0, v.as_db());
+  }
+
+  pub fn fade_to(self, v: Volume, d: Duration) -> Self {
+    self.volume = v;
+    sound_bus_add_transition(self.id, 0, linear_kind(), v.as_db(), 0, d.as_ms());
+    sound_fire(0);
+    self
+  }
+
+  // このバス (と子孫) で鳴っている音をすべて止める。`fade` があれば、バスの音量を下げてから止め、音量を戻す。
+  pub fn stop_all(self, fade: Duration) {
+    self.queue_stop_all(fade);
+    sound_fire(0);
+  }
+
+  pub(package) fn queue_stop_all(self, fade: Duration) {
+    if fade.as_ms() == 0 {
+      sound_bus_add_stop_all(self.id, 0);
+    } else {
+      sound_bus_add_transition(self.id, 0, linear_kind(), -60.0, 0, fade.as_ms());
+      sound_bus_add_stop_all(self.id, fade.as_ms());
+      sound_bus_add_transition(self.id, 0, linear_kind(), self.volume.as_db(), fade.as_ms(), 0);
+    }
+  }
+
+  // `after` の後に、このバスとその子孫 (と中の音) を消す。
+  pub fn delete(self, after: Duration) {
+    sound_bus_delete(self.id, after.as_ms());
+  }
+}
+
+// pass filter の傾き。
+pub enum FilterSlope {
+  // 12 dB/oct。
+  Gentle,
+  // 24 dB/oct (「切った」感じが強い)。
+  Steep,
+}
+
+// 帯域制限。low_cut 以下と high_cut 以上を弱める。20 Hz 以下の low_cut と 20000 Hz 以上の high_cut は「無効」。
+// Hz は対数で補間される (1000 → 2000 Hz と 2000 → 4000 Hz は同じ速さに聞こえる)。
+pub struct PassFilter {
+  id: Uint,
+}
+
+impl PassFilter {
+  pub fn set_low_cut(self, hz: Float) { sound_effect_set_param(self.id, 0, hz); }
+  pub fn set_high_cut(self, hz: Float) { sound_effect_set_param(self.id, 1, hz); }
+
+  pub fn low_cut_to(self, hz: Float, d: Duration) {
+    sound_effect_add_transition(self.id, 0, linear_kind(), hz, 0, d.as_ms());
+    sound_fire(0);
+  }
+
+  // 例: 水に潜る場面は bgm の high_cut を 20000 → 500 Hz へ 1 秒で。
+  pub fn high_cut_to(self, hz: Float, d: Duration) {
+    sound_effect_add_transition(self.id, 1, linear_kind(), hz, 0, d.as_ms());
+    sound_fire(0);
+  }
+}
+
+pub struct Compressor {
+  id: Uint,
+}
+
+impl Compressor {
+  pub fn set_threshold(self, v: Volume) { sound_effect_set_param(self.id, 0, v.as_db()); }
+  pub fn set_ratio(self, ratio: Float) { sound_effect_set_param(self.id, 1, ratio); }
+  pub fn set_makeup(self, v: Volume) { sound_effect_set_param(self.id, 4, v.as_db()); }
+}
+
+// ダッキングの設定。`amount` だけ下げる。attack は下げに入る速さ、release は戻る速さ
+// (短すぎると音量が呼吸するように上下する。目安は attack 50〜100 ms、release 300〜800 ms)。
+pub struct Ducking {
+  amount: Volume,
+  attack: Duration,
+  release: Duration,
+}
+
+impl Ducking {
+  pub fn new(amount: Volume, attack: Duration, release: Duration) -> Self {
+    Self { amount = amount, attack = attack, release = release }
+  }
+
+  // ボイスが鳴る間 BGM を 10 dB 下げる、ノベルゲームの既定。
+  pub fn default() -> Self {
+    Ducking::new(Volume::db(-10.0), Duration::ms(80), Duration::ms(500))
+  }
+}
+
+pub struct Duck {
+  id: Uint,
+}
+
+impl Duck {
+  // `None` ならダッキングしない (下げ幅 0)。
+  pub fn set(self, ducking: Option[Ducking]) {
+    match ducking {
+      Some(d) => {
+        sound_effect_set_param(self.id, 0, d.amount.as_db());
+        sound_effect_set_param(self.id, 1, uint_to_float(d.attack.as_ms()));
+        sound_effect_set_param(self.id, 2, uint_to_float(d.release.as_ms()));
+      }
+      None => { sound_effect_set_param(self.id, 0, 0.0); }
+    }
+  }
+}
+
+// --- 既定の木と音量の設定 -----------------------------------------------------
+
+// プレイヤーが設定画面で変える音量 (バスごと)。
+pub struct Volumes {
+  master: Volume,
+  bgm: Volume,
+  ambient: Volume,
+  se: Volume,
+  voice: Volume,
+  system: Volume,
+}
+
+impl Volumes {
+  // master を -3 dB にして、音が重なったときの余裕を残す。他は 0 dB。
+  pub fn default() -> Self {
+    Self {
+      master = Volume::db(-3.0),
+      bgm = Volume::db(0.0),
+      ambient = Volume::db(0.0),
+      se = Volume::db(0.0),
+      voice = Volume::db(0.0),
+      system = Volume::db(0.0),
+    }
+  }
+
+  pub fn new(master: Volume, bgm: Volume, ambient: Volume, se: Volume, voice: Volume, system: Volume) -> Self {
+    Self { master = master, bgm = bgm, ambient = ambient, se = se, voice = voice, system = system }
+  }
+}
+
+// std が作る既定のバスの木。Window の寿命のもので、`WindowHandle` が `Game` に運ぶ。
+//
+// ```
+// master   (リミッタ。出力に繋がる)
+// ├─ bgm   (ボイスが鳴る間だけ下がる)
+// ├─ ambient
+// ├─ se
+// ├─ voice
+// │   └─ voice/<キャラ> (`Character::new` が作る)
+// └─ system (UI の音)
+// ```
+pub struct SoundBuses {
+  master: Bus,
+  bgm: Bus,
+  ambient: Bus,
+  se: Bus,
+  voice: Bus,
+  system: Bus,
+  bgm_duck: Duck,
+}
+
+impl SoundBuses {
+  // 既定の木を作って出力に繋ぐ。`fn main()` で作って `Window::sound` に渡せば、その下に自前のバスを足せる。
+  // 渡さなければ `Window::show()` がこれを作る。
+  pub fn standard() -> Self {
+    let master = Bus::new();
+    master.add_limiter();
+    let voice = Bus::new();
+    let bgm = Bus::new();
+    let bgm_duck = bgm.add_duck(voice);
+    let buses = Self {
+      master = master,
+      bgm = bgm.attach(master),
+      ambient = Bus::new().attach(master),
+      se = Bus::new().attach(master),
+      voice = voice.attach(master),
+      system = Bus::new().attach(master),
+      bgm_duck = bgm_duck,
+    };
+    master.attach_to_output();
+    buses
+  }
+
+  pub fn master(self) -> Bus { self.master }
+  pub fn bgm(self) -> Bus { self.bgm }
+  pub fn ambient(self) -> Bus { self.ambient }
+  pub fn se(self) -> Bus { self.se }
+  pub fn voice(self) -> Bus { self.voice }
+  pub fn system(self) -> Bus { self.system }
+
+  // 音量の設定を各バスに反映する。鳴っている音にも効く。
+  pub(package) fn apply_volumes(self, v: Volumes) {
+    self.master.set_volume(v.master);
+    self.bgm.set_volume(v.bgm);
+    self.ambient.set_volume(v.ambient);
+    self.se.set_volume(v.se);
+    self.voice.set_volume(v.voice);
+    self.system.set_volume(v.system);
+  }
+
+  pub(package) fn apply_ducking(self, ducking: Option[Ducking]) {
+    self.bgm_duck.set(ducking);
+  }
+}
+
+// --- Game から見た音 ----------------------------------------------------------
+
+// 今鳴っている BGM。`change_bgm` が同じ曲なら何もしないために、パスも覚える。
+pub(package) struct BgmState {
+  current: Option[CurrentBgm],
+}
+
+pub(package) struct CurrentBgm {
+  path: String,
+  object: SoundObject,
+}
+
+impl BgmState {
+  pub(package) fn new() -> Self {
+    Self { current = None }
+  }
+
+  // 今の BGM を `fade` かけて下げてから止めるよう積む (発火は呼んだ側)。
+  fn queue_fade_out(self, fade: Duration) {
+    match self.current {
+      Some(cur) => { cur.object.queue_fade_out(fade); }
+      None => {}
+    }
+  }
+}
+
+// `g.sound()` が返すもの。既定のバスと音量の設定に触れる。
+pub struct GameSound {
+  buses: SoundBuses,
+  config: Config,
+}
+
+impl GameSound {
+  pub(package) fn new(buses: SoundBuses, config: Config) -> Self {
+    Self { buses = buses, config = config }
+  }
+
+  pub fn buses(self) -> SoundBuses {
+    self.buses
+  }
+
+  pub fn volumes(self) -> Volumes {
+    self.config.user().volumes()
+  }
+
+  // プレイヤーの音量の設定を変える。Window の設定を書き換えるので、プレイをまたいで残る。
+  pub fn set_volumes(self, v: Volumes) {
+    self.config.user().set_volumes(v);
+    self.buses.apply_volumes(v);
+  }
+}
+
+impl[S] Game[S] {
+  pub fn sound(self) -> GameSound {
+    GameSound::new(self.window.sound(), self.window.config())
+  }
+
+  // SE を 1 回鳴らす。SE はラウドネス正規化をしない (大小を意図して付けていることが多いため)。
+  pub fn play_se(self, s: Sound) -> SoundObject {
+    let object = s.create_on(self.window.sound().se(), FALSE, s.volume);
+    object.queue_start(1);
+    sound_fire(0);
+    object
+  }
+
+  // SE を鳴らして終わるまで待つ。クリックで飛ばせる (飛ばすと止まる)。
+  pub fn play_se_and_wait(self, s: Sound) -> SoundObject {
+    let object = s.create_on(self.window.sound().se(), FALSE, s.volume);
+    object.queue_start(1);
+    sound_fire(1);
+    sound_await();
+    object
+  }
+
+  // 環境音を無限に鳴らす。`fade` かけて大きくする。
+  pub fn play_ambient(self, s: Sound, fade: Duration) -> SoundObject {
+    let object = s.create_on(self.window.sound().ambient(), FALSE, Volume::silent());
+    object.queue_start(0);
+    object.queue_volume(s.volume, fade);
+    sound_fire(0);
+    object
+  }
+
+  // BGM を替える。今の BGM を `fade` かけて下げながら、新しい BGM を `fade` かけて上げる (クロスフェード)。
+  // 同じファイルが鳴っていれば何もしない。
+  pub fn change_bgm(self, s: Sound, fade: Duration) -> Self {
+    let same = match self.bgm.current {
+      Some(cur) => string_eq(cur.path, s.path),
+      None => FALSE,
+    };
+    if same {
+    } else {
+      self.bgm.queue_fade_out(fade);
+      let initial = initial_volume(s.volume, fade);
+      let object = s.create_on(self.window.sound().bgm(), TRUE, initial);
+      object.queue_start(0);
+      if fade.as_ms() != 0 {
+        object.queue_volume(s.volume, fade);
+      }
+      sound_fire(0);
+      self.bgm.current = Some(CurrentBgm { path = s.path, object = object });
+    }
+    self
+  }
+
+  // BGM を `fade` かけて止める。
+  pub fn stop_bgm(self, fade: Duration) -> Self {
+    match self.bgm.current {
+      Some(cur) => {
+        cur.object.fade_out(fade);
+        self.bgm.current = None;
+      }
+      None => {}
+    }
+    self
+  }
+}
+
+// --- 数 -----------------------------------------------------------------------
+
+fn flag(b: Bool) -> Uint {
+  if b { 1 } else { 0 }
+}
+
+// フェードで入るなら無音から、フェードが無ければ目標の音量から。
+fn initial_volume(target: Volume, fade: Duration) -> Volume {
+  if fade.as_ms() == 0 { target } else { Volume::silent() }
+}
+
+// 常用対数。`x` は正であること。
+fn log10(x: Float) -> Float {
+  log2(x) * 0.30103
+}
+
+// 2 を底とする対数。x = m * 2^e (1 <= m < 2) に分け、ln(m) は atanh の級数で求める。
+fn log2(x: Float) -> Float {
+  let e = 0.0;
+  let m = x;
+  while m >= 2.0 {
+    m = m / 2.0;
+    e = e + 1.0;
+  }
+  while m < 1.0 {
+    m = m * 2.0;
+    e = e - 1.0;
+  }
+  // ln(m) = 2 * atanh(z)、z = (m - 1) / (m + 1)。m < 2 なので z < 1/3 で、すぐに収まる。
+  let z = (m - 1.0) / (m + 1.0);
+  let z2 = z * z;
+  let term = z;
+  let sum = 0.0;
+  let k = 1.0;
+  while k < 20.0 {
+    sum = sum + term / k;
+    term = term * z2;
+    k = k + 2.0;
+  }
+  e + 2.0 * sum / 0.6931472
+}

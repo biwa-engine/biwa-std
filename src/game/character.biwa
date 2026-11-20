@@ -17,8 +17,26 @@ import package::game::canvas::Ch;
 import package::game::canvas::Theta;
 import package::game::canvas::Position;
 import package::game::color::Alpha;
+import package::game::sound::Bus;
+import package::game::sound::Sound;
+import package::game::base_engine::sound_fire;
 
 impl[P] Character[P] {
+  // ボイスを鳴らす。同じキャラの前のボイスは止める (違うキャラのボイスは重なってよい)。
+  // ボイスはラウドネス正規化をする。`>>` で止まるかはプレイヤーの設定 (`voice_continues`) で決まる。
+  pub fn voice(self, path: String) -> Self {
+    self.voice_bus.queue_stop_all(Duration::ms(0));
+    let object = Sound::new(path).create_on(self.voice_bus, TRUE, package::game::sound::Volume::db(0.0));
+    object.queue_start(1);
+    sound_fire(0);
+    self
+  }
+
+  // このキャラのボイスの音量 (バスの音量)。
+  pub fn set_voice_volume(self, v: package::game::sound::Volume) {
+    self.voice_bus.set_volume(v);
+  }
+
   // **暫定**: `Game` を受け取るが、保持するのはWindow の寿命のものの束 (`WindowHandle`) だけである
   // (`Character.window` のコメント参照)。
   pub fn new[S](
@@ -38,6 +56,7 @@ impl[P] Character[P] {
       current_visual = None,
       current_face = None,
       current_position = None,
+      voice_bus = Bus::new().attach(game.window.sound().voice()),
       window = game.window,
     }
   }

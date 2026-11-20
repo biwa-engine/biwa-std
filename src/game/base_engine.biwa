@@ -39,6 +39,8 @@
   (import "biwa:engine" "sys_sleep" (func $sys_sleep (param i32)))
   (import "biwa:engine" "sys_string_concat"
     (func $sys_string_concat (param externref externref) (result externref)))
+  (import "biwa:engine" "sys_string_eq"
+    (func $sys_string_eq (param externref externref) (result i32)))
   (import "biwa:engine" "sys_int_to_string"
     (func $sys_int_to_string (param i32) (result externref)))
   (import "biwa:engine" "sys_float_to_string"
@@ -67,6 +69,29 @@
   ;; (`docs/host-function-values.md` の「値を預ける」)。
   (import "biwa:engine" "sys_ui_set_value"
     (func $sys_ui_set_value (param i32 i32 anyref)))
+
+  ;; 音 (docs/sound.md)。id は SoundObject・Bus・Effect の空間ごとにエンジンが 1 から振る。
+  ;; 時刻は ms (i32)、音量は dB (f32)。
+  (import "biwa:engine" "sys_sound_bus_create" (func $sys_sound_bus_create (result i32)))
+  (import "biwa:engine" "sys_sound_bus_add_effect"
+    (func $sys_sound_bus_add_effect (param i32 i32 i32 i32) (result i32)))
+  (import "biwa:engine" "sys_sound_bus_attach" (func $sys_sound_bus_attach (param i32 i32)))
+  (import "biwa:engine" "sys_sound_output_attach" (func $sys_sound_output_attach (param i32)))
+  (import "biwa:engine" "sys_sound_bus_add_stop_all" (func $sys_sound_bus_add_stop_all (param i32 i32)))
+  (import "biwa:engine" "sys_sound_bus_delete" (func $sys_sound_bus_delete (param i32 i32)))
+  (import "biwa:engine" "sys_sound_bus_add_transition"
+    (func $sys_sound_bus_add_transition (param i32 i32 i32 f32 i32 i32)))
+  (import "biwa:engine" "sys_sound_bus_set_param" (func $sys_sound_bus_set_param (param i32 i32 f32)))
+  (import "biwa:engine" "sys_sound_effect_add_transition"
+    (func $sys_sound_effect_add_transition (param i32 i32 i32 f32 i32 i32)))
+  (import "biwa:engine" "sys_sound_effect_set_param" (func $sys_sound_effect_set_param (param i32 i32 f32)))
+  (import "biwa:engine" "sys_sound_create"
+    (func $sys_sound_create (param externref i32 f32 f32 f32 i32 i32 i32) (result i32)))
+  (import "biwa:engine" "sys_sound_add_start" (func $sys_sound_add_start (param i32 i32 i32 i32)))
+  (import "biwa:engine" "sys_sound_add_stop" (func $sys_sound_add_stop (param i32 i32)))
+  (import "biwa:engine" "sys_sound_add_transition"
+    (func $sys_sound_add_transition (param i32 i32 i32 f32 i32 i32)))
+  (import "biwa:engine" "sys_sound_preload" (func $sys_sound_preload (param externref)))
 }}
 
 import package::option::Option;
@@ -536,6 +561,21 @@ pub(package) fn int_to_float(val: Int) -> Float {{
   f32.convert_i32_s
 }}
 
+// 非負の整数を浮動小数にする。
+[[native(arch="wasm")]]
+pub(package) fn uint_to_float(val: Uint) -> Float {{
+  local.get 0
+  f32.convert_i32_u
+}}
+
+// 文字列が等しいか (中身で比べる)。文字列の実体はホストにあるので、ホストに頼む。
+[[native(arch="wasm")]]
+pub(package) fn string_eq(a: String, b: String) -> Bool {{
+  local.get 0
+  local.get 1
+  call $sys_string_eq
+}}
+
 [[native(arch="wasm")]]
 pub(package) fn float_to_string(val: Float) -> String {{
   local.get 0
@@ -758,3 +798,163 @@ pub(super) fn ui_set_handler[S](ui: UiId, handler: UiEventHandler[S]) {
 pub(super) fn ui_set_window_handle(ui: UiId, handle: WindowHandle) {
   sys_ui_set_value(ui.as_raw(), 0, handle);
 }
+
+// --- 音 ---------------------------------------------------------------------
+//
+// `docs/sound.md` の syscall をそのまま並べる。番号 (effect の kind・パラメータ) はエンジンとの取り決めで、
+// 一覧は engine の `src/engine/sound/Mixer.ts` と `crates/core/src/sound.rs` にある。
+// 型付きの API (`Sound` / `Bus` / ...) は `std::game::sound` が持つ。
+// 開始・停止・遷移は積むだけで、`start_transitions` で canvas と一緒に発火する。
+
+[[native(arch="wasm")]]
+pub(package) fn sound_bus_create() -> Uint {{
+  call $sys_sound_bus_create
+}}
+
+// effect を列の末尾に挿し、effect の id を返す。繋ぐ (attach) 前だけ挿せる。
+// kind: 1 = pass filter (cfg1: 傾き 0 = 12 dB/oct, 1 = 24 dB/oct)、20 = compressor、
+// 30 = duck (cfg1: key のバス、cfg2: mode。0 = activity だけ)。
+[[native(arch="wasm")]]
+pub(package) fn sound_bus_add_effect(bus: Uint, kind: Uint, cfg1: Uint, cfg2: Uint) -> Uint {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  call $sys_sound_bus_add_effect
+}}
+
+[[native(arch="wasm")]]
+pub(package) fn sound_bus_attach(bus: Uint, parent: Uint) {{
+  local.get 0
+  local.get 1
+  call $sys_sound_bus_attach
+}}
+
+// 根のバスを出力に繋ぐ。根は 1 本だけ (2 本目は警告して無視される)。
+[[native(arch="wasm")]]
+pub(package) fn sound_output_attach(bus: Uint) {{
+  local.get 0
+  call $sys_sound_output_attach
+}}
+
+[[native(arch="wasm")]]
+pub(package) fn sound_bus_add_stop_all(bus: Uint, after: Uint) {{
+  local.get 0
+  local.get 1
+  call $sys_sound_bus_add_stop_all
+}}
+
+[[native(arch="wasm")]]
+pub(package) fn sound_bus_delete(bus: Uint, after: Uint) {{
+  local.get 0
+  local.get 1
+  call $sys_sound_bus_delete
+}}
+
+// バスのパラメータ: 0 = 音量 [dB]。kind は canvas の遷移と同じ番号。
+[[native(arch="wasm")]]
+pub(package) fn sound_bus_add_transition(bus: Uint, param: Uint, kind: Uint, value: Float, after: Uint, duration: Uint) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  local.get 4
+  local.get 5
+  call $sys_sound_bus_add_transition
+}}
+
+[[native(arch="wasm")]]
+pub(package) fn sound_bus_set_param(bus: Uint, param: Uint, value: Float) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  call $sys_sound_bus_set_param
+}}
+
+// effect のパラメータ: pass filter は 0 = low_cut [Hz]、1 = high_cut [Hz]。
+// compressor は 0 = threshold [dB]、1 = ratio、2 = attack [ms]、3 = release [ms]、4 = makeup [dB]。
+// duck は 0 = 下げ幅 [dB]、1 = attack [ms]、2 = release [ms]。
+[[native(arch="wasm")]]
+pub(package) fn sound_effect_add_transition(effect: Uint, param: Uint, kind: Uint, value: Float, after: Uint, duration: Uint) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  local.get 4
+  local.get 5
+  call $sys_sound_effect_add_transition
+}}
+
+[[native(arch="wasm")]]
+pub(package) fn sound_effect_set_param(effect: Uint, param: Uint, value: Float) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  call $sys_sound_effect_set_param
+}}
+
+// SoundObject を作る。まだ鳴らない。loop_end_ms = 0 はファイルの終わり。
+// normalize は 1 ならラウドネス正規化の補正を足す (段 2 で実装。それまでエンジンは無視する)。
+[[native(arch="wasm")]]
+pub(package) fn sound_create(
+  path: String, bus: Uint, volume_db: Float, x: Float, y: Float,
+  loop_start_ms: Uint, loop_end_ms: Uint, normalize: Uint,
+) -> Uint {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  local.get 4
+  local.get 5
+  local.get 6
+  local.get 7
+  call $sys_sound_create
+}}
+
+// repeat: 0 = 無限、n = n 回。offset_ms: 再生を始める位置。
+[[native(arch="wasm")]]
+pub(package) fn sound_add_start(id: Uint, after: Uint, offset_ms: Uint, repeat: Uint) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  call $sys_sound_add_start
+}}
+
+[[native(arch="wasm")]]
+pub(package) fn sound_add_stop(id: Uint, after: Uint) {{
+  local.get 0
+  local.get 1
+  call $sys_sound_add_stop
+}}
+
+// SoundObject のパラメータ: 0 = 音量 [dB]、1 = x、2 = y (-1.0..1.0)。
+[[native(arch="wasm")]]
+pub(package) fn sound_add_transition(id: Uint, param: Uint, kind: Uint, value: Float, after: Uint, duration: Uint) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  local.get 4
+  local.get 5
+  call $sys_sound_add_transition
+}}
+
+[[native(arch="wasm")]]
+pub(package) fn sound_preload(path: String) {{
+  local.get 0
+  call $sys_sound_preload
+}}
+
+// 積まれた開始・停止・遷移を発火する (canvas の遷移と共通)。`sync` なら待たれ、クリックで畳まれる。
+[[native(arch="wasm")]]
+pub(package) fn sound_fire(sync: Uint) {{
+  local.get 0
+  call $sys_start_transitions
+}}
+
+[[native(arch="wasm")]]
+pub(package) fn sound_await() {{
+  call $sys_await_transitions
+}}
+
