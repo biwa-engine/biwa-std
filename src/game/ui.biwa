@@ -49,23 +49,44 @@ pub import layers::Layers;
 // ui_id の束で、scene からは `game.window.wait()` のように使われる。
 // UI Element の `Window` (root element) は本ファイル下部の「UI Element」節にある。
 //
-// `GameWindow` はランタイムが Window の ScenePage の Canvas / MessageArea から組み立てて、
-// `SceneStartButton` の `on_click(window)` に渡す。
+// `GameWindow` はランタイムが Window の ScenePage の Canvas / MessageArea と、
+// Window に預けた共有物 (`WindowShared`) から組み立てて、`SceneStartButton` の `on_click(window)` に渡す。
 // ランタイムは Biwa の値を直接は作れないので、下の host export
 // `__biwa_std_game_window_new` を呼んで作る。
 //
 // コンパイラはこの型を知らない (lang item ではない)。ランタイムとの取り決めは
-// host export の名前と引数 (ui_id 2 つ) だけである。
+// host export の名前と引数 (ui_id 2 つと `WindowShared`) だけである。
+//
+// 持つものは 2 種類ある:
+// - scene の出力先 (`canvas` / `message_area`)。ScenePage ごとのもの。
+// - アプリケーションが続く間ずっと生きるもの (`shared`)。Window ごとのもので、1 回のプレイ (`Game`) より長生きする。
 pub struct GameWindow {
   // Canvas API の出力先。無ければ Canvas API は使えない。
   canvas: Option[GameCanvas],
   // Content API の出力先。無ければ Content API は使えない。
   message_area: Option[GameMessageArea],
+  // Window に預けた共有物。`Window::show()` が作ってランタイムに預け、ランタイムがここに返す。
+  shared: WindowShared,
+}
+
+// Window (アプリケーション) の寿命の共有物。
+//
+// `Window::show()` が作ってランタイムに預け (`sys_ui_set_value`)、scene を始めるときに
+// ランタイムが `GameWindow` に入れて返す。ランタイムは中身を見ない。
+// `fn main()` の値を `Game` まで運ぶ道はこれしか無い (クロージャが無いので、`on_click` は `main` の変数を捕まえられない)。
+//
+// 中身はまだ無い。音のバスの木やプレイヤーの音量の設定がここに入る (memo の音の仕様 D28〜D31)。
+pub struct WindowShared {}
+
+impl WindowShared {
+  pub(super) fn new() -> Self {
+    Self {}
+  }
 }
 
 impl GameWindow {
-  // 引数は出力先の UI Element (`Canvas` / `MessageArea`)。
-  fn new(canvas: Option[UiId], message_area: Option[UiId]) -> Self {
+  // 引数は出力先の UI Element (`Canvas` / `MessageArea`) と、Window に預けた共有物。
+  fn new(canvas: Option[UiId], message_area: Option[UiId], shared: WindowShared) -> Self {
     Self {
       canvas = match canvas {
         Some(id) => Some(GameCanvas { ui_id = id }),
@@ -75,6 +96,7 @@ impl GameWindow {
         Some(id) => Some(GameMessageArea { ui_id = id }),
         None => None,
       },
+      shared = shared,
     }
   }
 
@@ -93,6 +115,10 @@ impl GameWindow {
     self.message_area
   }
 
+  pub(super) fn shared(self) -> WindowShared {
+    self.shared
+  }
+
   // fn width(self) -> Uint;
   // fn height(self) -> Uint;
 }
@@ -103,11 +129,13 @@ impl GameWindow {
 // 素の ui_id を受け取り、**0 を「無し」**として扱う。
 // ui_id は 1 から振られるので 0 はどの Element とも重ならない。
 //
+// `shared` は Window に預けた値を、ホストが中身を見ずにそのまま返したものである。
+//
 // `GameWindow::new` は関連関数なので host export の付与対象 (トップレベルの `fn`) に入らず、
 // この薄いラッパーを置いている。
 [[host_export="__biwa_std_game_window_new"]]
-fn game_window_new_for_host(canvas_id: Uint, message_area_id: Uint) -> GameWindow {
-  GameWindow::new(ui_id_or_none(canvas_id), ui_id_or_none(message_area_id))
+fn game_window_new_for_host(canvas_id: Uint, message_area_id: Uint, shared: WindowShared) -> GameWindow {
+  GameWindow::new(ui_id_or_none(canvas_id), ui_id_or_none(message_area_id), shared)
 }
 
 // ホストから来た ui_id の 0 を「無し」に読み替える。

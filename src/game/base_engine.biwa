@@ -63,6 +63,10 @@
   ;; 単相化後の型名をここに書かずに済む (`docs/host-function-values.md`)。
   (import "biwa:engine" "sys_ui_set_handler"
     (func $sys_ui_set_handler (param i32 i32 funcref)))
+  ;; 値 (struct) は anyref で渡す。ホストは中身を見ずに預かり、後で host export の引数として返す
+  ;; (`docs/host-function-values.md` の「値を預ける」)。
+  (import "biwa:engine" "sys_ui_set_value"
+    (func $sys_ui_set_value (param i32 i32 anyref)))
 }}
 
 import package::option::Option;
@@ -94,6 +98,7 @@ import package::game::ui::UiSize;
 import package::game::ui::UiElement;
 import package::game::ui::UiProperty;
 import package::game::ui::UiEventHandler;
+import package::game::ui::WindowShared;
 import package::game::ui::GameCanvas;
 import package::time::Duration;
 
@@ -674,6 +679,16 @@ fn sys_ui_set_handler[A, R](ui_id: Uint, kind: Uint, f: fn(A) -> R) {{
   call $sys_ui_set_handler
 }}
 
+// `v` は struct (WasmGC の参照型) に限る。どの struct の参照も anyref の部分型なので、
+// 型名をここに書かずに済む (関数の funcref と同じ)。
+[[native(arch="wasm")]]
+fn sys_ui_set_value[T](ui_id: Uint, kind: Uint, v: T) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  call $sys_ui_set_value
+}}
+
 // 大きさの property。val_u1 が単位 (0 = vw, 1 = vh, 2 = percent)、val_f が値。
 fn ui_set_size_property(ui: UiId, kind: Uint, size: UiSize) {
   match size {
@@ -736,4 +751,10 @@ pub(super) fn ui_set_handler[S](ui: UiId, handler: UiEventHandler[S]) {
     UiEventHandler::WindowMainScene(h) => sys_ui_set_handler(ui.as_raw(), 0, h),
     UiEventHandler::SceneStartButtonOnClick(h) => sys_ui_set_handler(ui.as_raw(), 1, h),
   }
+}
+
+// Window にアプリケーションの寿命の共有物を預ける。番号 (`ValueKind`) はここにしか書かない。
+// ホストは scene を始めるときに、これを `__biwa_std_game_window_new` の引数として返す。
+pub(super) fn ui_set_window_shared(ui: UiId, shared: WindowShared) {
+  sys_ui_set_value(ui.as_raw(), 0, shared);
 }

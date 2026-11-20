@@ -12,6 +12,8 @@ import package::game::ui::UiEventHandler;
 import package::game::base_engine::ui_create_window;
 import package::game::base_engine::ui_set_property;
 import package::game::base_engine::ui_set_handler;
+import package::game::base_engine::ui_set_window_shared;
+import package::game::ui::WindowShared;
 
 // ウィンドウ。UI の root となる Element。子は Page のみ持てる。
 //
@@ -69,6 +71,8 @@ impl[S] Window[S] {
     ui_set_property(id, UiProperty::WindowScenePage(self.scene_page.materialize()));
     // scene 本体はホストに預ける (`docs/host-function-values.md`)。
     ui_set_handler(id, UiEventHandler::WindowMainScene(self.main_scene));
+    // アプリケーションの寿命の共有物も預ける。scene を始めるときに `GameWindow` に入って戻ってくる。
+    ui_set_window_shared(id, WindowShared::new());
     let i = 0;
     while i < self.pages.len() {
       self.pages.get(i).unwrap().materialize_into(id);
