@@ -5,7 +5,7 @@ import package::option::Option::None;
 import package::time::Duration;
 import package::game::Character;
 import package::game::Game;
-import package::game::ui::GameCanvas;
+import package::game::ui::CanvasHandle;
 import package::game::image::Image;
 import package::game::canvas::CanvasObject;
 import package::game::canvas::ObjectBatchChain;
@@ -19,7 +19,7 @@ import package::game::canvas::Position;
 import package::game::color::Alpha;
 
 impl[P] Character[P] {
-  // **暫定**: `Game` を受け取るが、保持するのは出力先の束 (`GameWindow`) だけである
+  // **暫定**: `Game` を受け取るが、保持するのはWindow の寿命のものの束 (`WindowHandle`) だけである
   // (`Character.window` のコメント参照)。
   pub fn new[S](
     game: Game[S],
@@ -42,9 +42,9 @@ impl[P] Character[P] {
     }
   }
 
-  // 描画の出力先。無ければ止める (`Game::canvas` と同じ扱い)。
-  fn canvas(self) -> GameCanvas {
-    self.window.canvas().unwrap()
+  // 描画の出力先。
+  fn canvas(self) -> CanvasHandle {
+    self.window.canvas()
   }
 
   fn is_on_screen(self) -> Bool {
