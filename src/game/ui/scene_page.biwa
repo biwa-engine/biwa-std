@@ -69,6 +69,15 @@ impl[S] ScenePage[S] {
     self
   }
 
+  // scene の出力先。`Window::show()` が `WindowHandle` を組み立てるのに使う。
+  pub(super) fn canvas_id(self) -> CanvasId {
+    self.canvas
+  }
+
+  pub(super) fn message_area_id(self) -> MessageAreaId {
+    self.message_area
+  }
+
   // 木を辿って syscall を発行し、その ID を返す。Window に結びつけるのは `Window::show`。
   // 出力先が子孫に置かれているかは、Window に結びつけた時点でエンジンが確かめる。
   pub(super) fn materialize(self) -> ScenePageId {

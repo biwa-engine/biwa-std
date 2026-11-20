@@ -19,7 +19,7 @@ import package::option::Option::None;
 import package::collections::Vec;
 import package::time::Duration;
 import package::game::color::Alpha;
-import package::game::ui::GameCanvas;
+import package::game::ui::CanvasHandle;
 import package::game::image::Image;
 
 // canvas 上の x 座標。
@@ -196,7 +196,7 @@ pub(super) type CanvasObjectThetaTransition = CanvasObjectTransition[Theta, Thet
 pub struct CanvasObject {
   id: Uint,
   // 置いた先の Canvas。差し替え (`Character::change_visual`) で同じ所に出し直すのに使う。
-  canvas: GameCanvas,
+  canvas: CanvasHandle,
   layer: Uint,
   x: Cx,
   y: Cy,
@@ -208,7 +208,7 @@ pub struct CanvasObject {
 
 impl CanvasObject {
   pub(super) fn create(
-    image: Image, canvas: GameCanvas, layer: Uint, x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha,
+    image: Image, canvas: CanvasHandle, layer: Uint, x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha,
   ) -> Self {
     let id = package::game::base_engine::create_object(
       canvas, image.path(), layer, x, y, w, h, alpha, Theta::theta(0.0));
@@ -226,7 +226,7 @@ impl CanvasObject {
     }
   }
 
-  pub(super) fn canvas(self) -> GameCanvas { self.canvas }
+  pub(super) fn canvas(self) -> CanvasHandle { self.canvas }
 
   pub(super) fn layer(self) -> Uint { self.layer }
 

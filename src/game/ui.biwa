@@ -42,61 +42,50 @@ pub import canvas::Canvas;
 pub import message_area::MessageArea;
 pub import layers::Layers;
 
-// --- ゲームの出力先の束 (canvas + message area) -------------------------------
+// --- Window の寿命のものの束 (`WindowHandle`) ----------------------------------
 //
 // これは `docs/ui-api.md` の UI Element `Window` とは別物である。
-// こちらは `Game` が内部的に持つ、出力先 (Canvas / MessageArea の UI Element) の
-// ui_id の束で、scene からは `game.window.wait()` のように使われる。
 // UI Element の `Window` (root element) は本ファイル下部の「UI Element」節にある。
 //
-// `GameWindow` はランタイムが Window の ScenePage の Canvas / MessageArea と、
-// Window に預けた共有物 (`WindowShared`) から組み立てて、`SceneStartButton` の `on_click(window)` に渡す。
-// ランタイムは Biwa の値を直接は作れないので、下の host export
-// `__biwa_std_game_window_new` を呼んで作る。
+// `WindowHandle` は、Window (= アプリケーション全体) の寿命を持つ値の束で、
+// `Game[S]` はプレイの間これを持ち続け、Window への副作用の経路にする。
+// scene からは `game.window.wait()` のように使われる。
 //
-// コンパイラはこの型を知らない (lang item ではない)。ランタイムとの取り決めは
-// host export の名前と引数 (ui_id 2 つと `WindowShared`) だけである。
+// 受け渡しの流れ:
+// 1. `Window::show()` がこれを組み立て、ランタイムに預ける (`sys_ui_set_value`)。
+// 2. `SceneStartButton` が押されると、ランタイムは預かった値を中身を見ずにそのまま `on_click` に渡す。
+// 3. `on_click` がこれを `Game::new` に渡す。
 //
-// 持つものは 2 種類ある:
-// - scene の出力先 (`canvas` / `message_area`)。ScenePage ごとのもの。
-// - アプリケーションが続く間ずっと生きるもの (`shared`)。Window ごとのもので、1 回のプレイ (`Game`) より長生きする。
-pub struct GameWindow {
-  // Canvas API の出力先。無ければ Canvas API は使えない。
-  canvas: Option[GameCanvas],
-  // Content API の出力先。無ければ Content API は使えない。
-  message_area: Option[GameMessageArea],
-  // Window に預けた共有物。`Window::show()` が作ってランタイムに預け、ランタイムがここに返す。
-  shared: WindowShared,
+// ランタイムとの取り決めは「Window に預けた値を `on_click` に渡す」ことだけなので、
+// ここに何を足しても、ランタイムや ABI は変わらない。
+// `fn main()` の値を `Game` まで運ぶ道はこれしか無い
+// (クロージャが無いので、`on_click` は `main` の変数を捕まえられない)。
+//
+// **共有の意味**: struct は参照なので、`Game` が持つ `WindowHandle` と、そこから取り出した
+// struct を書き換えれば、同じ Window を指す他の持ち主からも変わって見える
+// (Biwa には mutability の区別が無いので、参照の共有は mutable な参照の共有である。
+// `docs/biwa-lang-type-system.md`)。
+// そのため std の中で `WindowHandle { canvas = h.canvas, .. }` のように**作り直してはいけない**
+// (別の struct になり、共有が切れる)。受け取ったものをそのまま渡すこと。
+//
+// **入れてよいのは Window の寿命のものだけ**である。ゲームの状態 `S` や、
+// キャラごとのボイスのバスのような 1 回のプレイ (`Game`) の寿命のものは `Game` に置く
+// (2 回目以降のプレイでは、Window の寿命のものだけが引き継がれる。memo の音の仕様 D30)。
+// 型引数 `S` を持たないのもこのためである。
+pub struct WindowHandle {
+  // Canvas API の出力先 (Window の ScenePage の Canvas)。
+  canvas: CanvasHandle,
+  // Content API の出力先 (Window の ScenePage の MessageArea)。
+  message_area: MessageAreaHandle,
 }
 
-// Window (アプリケーション) の寿命の共有物。
-//
-// `Window::show()` が作ってランタイムに預け (`sys_ui_set_value`)、scene を始めるときに
-// ランタイムが `GameWindow` に入れて返す。ランタイムは中身を見ない。
-// `fn main()` の値を `Game` まで運ぶ道はこれしか無い (クロージャが無いので、`on_click` は `main` の変数を捕まえられない)。
-//
-// 中身はまだ無い。音のバスの木やプレイヤーの音量の設定がここに入る (memo の音の仕様 D28〜D31)。
-pub struct WindowShared {}
-
-impl WindowShared {
-  pub(super) fn new() -> Self {
-    Self {}
-  }
-}
-
-impl GameWindow {
-  // 引数は出力先の UI Element (`Canvas` / `MessageArea`) と、Window に預けた共有物。
-  fn new(canvas: Option[UiId], message_area: Option[UiId], shared: WindowShared) -> Self {
+impl WindowHandle {
+  // `Window::show()` だけが作る。出力先は ScenePage が必ず受け取るものなので `Option` ではない
+  // (ScenePage の子孫に実体が置かれているかはエンジンが確かめる)。
+  pub(super) fn new(canvas: CanvasId, message_area: MessageAreaId) -> Self {
     Self {
-      canvas = match canvas {
-        Some(id) => Some(GameCanvas { ui_id = id }),
-        None => None,
-      },
-      message_area = match message_area {
-        Some(id) => Some(GameMessageArea { ui_id = id }),
-        None => None,
-      },
-      shared = shared,
+      canvas = CanvasHandle { ui_id = canvas.ui_id() },
+      message_area = MessageAreaHandle { ui_id = message_area.ui_id() },
     }
   }
 
@@ -107,52 +96,25 @@ impl GameWindow {
     wait();
   }
 
-  pub(super) fn canvas(self) -> Option[GameCanvas] {
+  pub(super) fn canvas(self) -> CanvasHandle {
     self.canvas
   }
 
-  pub(super) fn message_area(self) -> Option[GameMessageArea] {
+  pub(super) fn message_area(self) -> MessageAreaHandle {
     self.message_area
-  }
-
-  pub(super) fn shared(self) -> WindowShared {
-    self.shared
   }
 
   // fn width(self) -> Uint;
   // fn height(self) -> Uint;
 }
 
-// ランタイムが `GameWindow` を組み立てるための入口。
-//
-// ホスト (JS) は Biwa の `Option` を組み立てられない (wasm では WasmGC の値) ので、
-// 素の ui_id を受け取り、**0 を「無し」**として扱う。
-// ui_id は 1 から振られるので 0 はどの Element とも重ならない。
-//
-// `shared` は Window に預けた値を、ホストが中身を見ずにそのまま返したものである。
-//
-// `GameWindow::new` は関連関数なので host export の付与対象 (トップレベルの `fn`) に入らず、
-// この薄いラッパーを置いている。
-[[host_export="__biwa_std_game_window_new"]]
-fn game_window_new_for_host(canvas_id: Uint, message_area_id: Uint, shared: WindowShared) -> GameWindow {
-  GameWindow::new(ui_id_or_none(canvas_id), ui_id_or_none(message_area_id), shared)
-}
-
-// ホストから来た ui_id の 0 を「無し」に読み替える。
-fn ui_id_or_none(id: Uint) -> Option[UiId] {
-  if id == 0 {
-    None
-  } else {
-    Some(UiId::new(id))
-  }
-}
-
 // Canvas API の出力先。UI Element `Canvas` の ui_id を持つだけの薄い struct。
-pub struct GameCanvas {
+// 描画の API を持ち、`WindowHandle` の中にある。
+pub struct CanvasHandle {
   ui_id: UiId,
 }
 
-impl GameCanvas {
+impl CanvasHandle {
   // fn create_image(self, image: Image, x: Int, y: Int, width: Option[Uint], height: Option[Uint]);
 
   pub(super) fn ui_id(self) -> UiId {
@@ -161,13 +123,14 @@ impl GameCanvas {
 }
 
 // Content API の出力先。UI Element `MessageArea` の ui_id を持つだけの薄い struct。
+// `WindowHandle` の中にある。
 //
 // syscall には出力先としてこの ui_id を第一引数で渡す。
-pub(super) struct GameMessageArea {
+pub(super) struct MessageAreaHandle {
   ui_id: UiId,
 }
 
-impl GameMessageArea {
+impl MessageAreaHandle {
   // テキストを 1 つ積む。まだ描画されない。
   //
   // 引数はすべて**解決済みの絶対値**である。設定を読んで
@@ -261,7 +224,7 @@ pub(super) enum UiProperty {
 // UI Element のハンドラ (ホストが後で呼ぶ関数)。番号は `base_engine::ui_set_handler` が持つ。
 pub(super) enum UiEventHandler[S] {
   WindowMainScene(Scene[S]),
-  SceneStartButtonOnClick(fn(GameWindow) -> Game[S]),
+  SceneStartButtonOnClick(fn(WindowHandle) -> Game[S]),
 }
 
 // UI のレイアウトで使う大きさ。Message Window の `Size` (vw/vh のみ) と違い、
@@ -459,7 +422,7 @@ impl ScenePageId {
 // `Canvas` の ID。ScenePage に scene の Canvas API の出力先として渡す (`Canvas::canvas_id()`)。
 //
 // 中身は ui_id だが、他の Element の ui_id と取り違えないよう包んである。
-// 描画の API を持つ `GameCanvas` (ゲームが始まってから使う出力先) とは役割で分けている。
+// 描画の API を持つ `CanvasHandle` (ゲームが始まってから使う出力先) とは役割で分けている。
 pub struct CanvasId {
   ui_id: UiId,
 }
@@ -469,13 +432,17 @@ impl CanvasId {
     Self { ui_id = ui_id }
   }
 
+  pub(super) fn ui_id(self) -> UiId {
+    self.ui_id
+  }
+
   pub(super) fn as_raw(self) -> Uint {
     self.ui_id.as_raw()
   }
 }
 
 // `MessageArea` の ID。ScenePage に scene の Content API の出力先として渡す
-// (`MessageArea::message_area_id()`)。`GameMessageArea` とは役割で分けている (`CanvasId` と同じ)。
+// (`MessageArea::message_area_id()`)。`MessageAreaHandle` とは役割で分けている (`CanvasId` と同じ)。
 pub struct MessageAreaId {
   ui_id: UiId,
 }
@@ -483,6 +450,10 @@ pub struct MessageAreaId {
 impl MessageAreaId {
   pub(super) fn new(ui_id: UiId) -> Self {
     Self { ui_id = ui_id }
+  }
+
+  pub(super) fn ui_id(self) -> UiId {
+    self.ui_id
   }
 
   pub(super) fn as_raw(self) -> Uint {

@@ -5,7 +5,7 @@ import package::option::Option::None;
 import package::convert::Into;
 import package::game::Game;
 import package::game::color::Color;
-import package::game::ui::GameWindow;
+import package::game::ui::WindowHandle;
 import package::game::ui::UiElement;
 import package::game::ui::UiSize;
 import package::game::ui::Background;
@@ -19,11 +19,11 @@ import package::game::base_engine::ui_set_handler;
 
 // 押すと scene を始めるボタン。子は持てない。見た目の property は Link と同じ。
 //
-// 押されるとホストは `on_click` に `GameWindow` (Window の ScenePage の出力先) を渡して `Game[S]` を作らせ、
+// 押されるとホストは `on_click` に `WindowHandle` (Window に預けてあった、Window の寿命のものの束) を渡して `Game[S]` を作らせ、
 // ScenePage を表示してから、その `Game[S]` で Window の `main_scene` を始める。
 
 pub struct SceneStartButton[S] {
-  on_click: fn(GameWindow) -> Game[S],
+  on_click: fn(WindowHandle) -> Game[S],
   id: Option[String],
   width: Option[UiSize],
   height: Option[UiSize],
@@ -44,9 +44,9 @@ pub struct SceneStartButton[S] {
 }
 
 impl[S] SceneStartButton[S] {
-  // `on_click` は押されたときに呼ばれ、`GameWindow` (scene の出力先の束) から `Game[S]` を作る。
+  // `on_click` は押されたときに呼ばれ、`WindowHandle` (Window の寿命のものの束) から `Game[S]` を作る。
   // 返った `Game[S]` で Window の `main_scene` が始まる。
-  pub fn new(on_click: fn(GameWindow) -> Game[S]) -> Self {
+  pub fn new(on_click: fn(WindowHandle) -> Game[S]) -> Self {
     Self {
       on_click = on_click,
       id = None,

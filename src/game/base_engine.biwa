@@ -98,8 +98,8 @@ import package::game::ui::UiSize;
 import package::game::ui::UiElement;
 import package::game::ui::UiProperty;
 import package::game::ui::UiEventHandler;
-import package::game::ui::WindowShared;
-import package::game::ui::GameCanvas;
+import package::game::ui::WindowHandle;
+import package::game::ui::CanvasHandle;
 import package::time::Duration;
 
 // --- canvas オブジェクト ---------------------------------------------------
@@ -144,7 +144,7 @@ fn sys_create_object(
 }}
 
 pub(super) fn create_object(
-  canvas: GameCanvas,
+  canvas: CanvasHandle,
   path: String, layer: Uint,
   x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha, theta: Theta,
 ) -> Uint {
@@ -753,8 +753,8 @@ pub(super) fn ui_set_handler[S](ui: UiId, handler: UiEventHandler[S]) {
   }
 }
 
-// Window にアプリケーションの寿命の共有物を預ける。番号 (`ValueKind`) はここにしか書かない。
-// ホストは scene を始めるときに、これを `__biwa_std_game_window_new` の引数として返す。
-pub(super) fn ui_set_window_shared(ui: UiId, shared: WindowShared) {
-  sys_ui_set_value(ui.as_raw(), 0, shared);
+// Window に `WindowHandle` を預ける。番号 (`ValueKind`) はここにしか書かない。
+// ホストは scene を始めるときに、これをそのまま `SceneStartButton` の `on_click` に渡す。
+pub(super) fn ui_set_window_handle(ui: UiId, handle: WindowHandle) {
+  sys_ui_set_value(ui.as_raw(), 0, handle);
 }

@@ -15,7 +15,7 @@ import package::game::base_engine::ui_create_message_area;
 
 // Content API (ノベル表現) の出力先になる Element。子は持てない。
 //
-// scene の生テキストや `$` の埋め込み式はここに出る。`GameMessageArea` がこの ui_id を持つ。
+// scene の生テキストや `$` の埋め込み式はここに出る。`MessageAreaHandle` がこの ui_id を持つ。
 //
 // `Canvas` と同じく、`MessageArea::new()` の時点で UI Element を作る (`message_area_id()` のため)。
 pub struct MessageArea[S] {

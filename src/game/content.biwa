@@ -11,7 +11,7 @@ import package::game::color::Color;
 import package::game::config::Config;
 import package::game::font::TextWeight;
 import package::game::ui::Size;
-import package::game::ui::GameMessageArea;
+import package::game::ui::MessageAreaHandle;
 import package::game::base_engine::int_to_string;
 import package::game::base_engine::float_to_string;
 import package::game::Game;
@@ -158,12 +158,8 @@ fn content_flush_and_wait[S](game: Game[S]) {
 }
 
 // Content API の出力先。
-//
-// `GameWindow` に MessageArea が無い (ランタイムが渡さなかった) のに
-// テキストを出そうとするのはゲーム側の構成の誤りなので、黙って捨てずに止める
-// (`Option::unwrap` → `abort`。wasm では trap する)。
-fn message_area_of[S](game: Game[S]) -> GameMessageArea {
-  game.window.message_area().unwrap()
+fn message_area_of[S](game: Game[S]) -> MessageAreaHandle {
+  game.window.message_area()
 }
 
 // ---- 設定の解決 ----

@@ -15,9 +15,9 @@ import package::game::base_engine::ui_create_canvas;
 
 // Canvas API の出力先になる Element。子は持てない。
 //
-// ゲーム進行中の画像などはここに描かれる。`GameCanvas` がこの ui_id を持つ。
+// ゲーム進行中の画像などはここに描かれる。`CanvasHandle` がこの ui_id を持つ。
 // Element として切り出しておくのは、複数キャンバスやミラーリングに備えるため
-// (`docs/ui-api.md`)。`Canvas` の名前はもともと `GameCanvas` が使っていたが、
+// (`docs/ui-api.md`)。`Canvas` の名前はもともと今の `CanvasHandle` (当時の名前は `GameCanvas`) が使っていたが、
 // UI Element の名前に譲った (§14)。
 //
 // 他の Element と違い、`Canvas::new()` の時点で UI Element を作る (`ui_id` を持つ)。
