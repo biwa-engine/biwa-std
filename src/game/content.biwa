@@ -133,7 +133,7 @@ fn content_push[C: Into[Content], S](game: Game[S], content: C) {
   let c: Content = content.into();
   match c {
     Content::Text(text) => {
-      message_area_of(game).push_text(
+      game.window.message_area().push_text(
         text.text,
         resolved_speed(game.window.config(), text.speed),
         resolved_size(game.window.config(), text.size),
@@ -146,7 +146,7 @@ fn content_push[C: Into[Content], S](game: Game[S], content: C) {
 
 [[lang="content_flush_and_wait"]]
 fn content_flush_and_wait[S](game: Game[S]) {
-  message_area_of(game).flush();
+  game.window.message_area().flush();
   // 将来的に各種イベントを受け取る機構が検討されている。
   // 共通のイベントハンドラをエンジン側が呼び、種類ごとに振り分ける形などが考えられる。
   // game.window.wait_event(Event::MouseClickLeft);
@@ -154,12 +154,7 @@ fn content_flush_and_wait[S](game: Game[S]) {
   // **クリアするのはここである。** エンジンは自分の判断で消さない。
   // 「待つが消さない」API を将来足すときに、
   // 変更がコンパイラと std に閉じるようにするための切り分けである。
-  message_area_of(game).clear();
-}
-
-// Content API の出力先。
-fn message_area_of[S](game: Game[S]) -> MessageAreaHandle {
-  game.window.message_area()
+  game.window.message_area().clear();
 }
 
 // ---- 設定の解決 ----
