@@ -12,8 +12,7 @@ import package::game::config::Config;
 import package::game::font::TextWeight;
 import package::game::ui::Size;
 import package::game::ui::MessageAreaHandle;
-import package::game::base_engine::int_to_string;
-import package::game::base_engine::float_to_string;
+import package::game::runtime;
 import package::game::Game;
 import package::time::Duration;
 
@@ -113,13 +112,13 @@ impl String: Into[Content] {
 // `Into` を定義している std でだけこれが書ける。
 impl Int: Into[Content] {
   fn into(self) -> Content {
-    Content::Text(TextContent::plain(int_to_string(self)))
+    Content::Text(TextContent::plain(runtime::int_to_string(self)))
   }
 }
 
 impl Float: Into[Content] {
   fn into(self) -> Content {
-    Content::Text(TextContent::plain(float_to_string(self)))
+    Content::Text(TextContent::plain(runtime::float_to_string(self)))
   }
 }
 

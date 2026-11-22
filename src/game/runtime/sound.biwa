@@ -1,30 +1,52 @@
 // ---- Sound SubSystem ----
 //
-// `docs/sound.md` の syscall をそのまま並べる。番号 (effect の kind・パラメータ) はエンジンとの取り決めで、
+// 音 (`std::game::sound`) の下にある低レベルの API である。設計は `docs/sound.md`。
+//
+// エンジンとの取り決め (effect の種類・設定・パラメータの番号、値の単位、センチネル) を知っているのはこのモジュールだけである。
 // 一覧は engine の `src/engine/sound/Mixer.ts` と `crates/core/src/sound.rs` にある。
-// 型付きの API (`Sound` / `Bus` / ...) は `std::game::sound` が持つ。
-// 開始・停止・遷移は積むだけで、`start_transitions` で canvas と一緒に発火する。
+//
+// - id は SoundObject・Bus・Effect の空間ごとにエンジン (vm / Worker) が 1 から振る。
+// - 時刻は ms (i32)、音量は dB (f32)。effect のパラメータは常に f32 (ms のパラメータも f32 で渡す)。
+// - 開始・停止・stop_all・遷移は積むだけで、`timeline_fire` で canvas と一緒に発火する。
+//   パラメータの set は発火を待たずにすぐ効く。
 
+import package::option::Option;
+import package::option::Option::Some;
+import package::option::Option::None;
+import package::collections::Vec;
+import package::string::String;
+import package::time::Duration;
+import package::game::timeline::Transition;
+import package::game::sound::Volume;
+import package::game::sound::Hz;
+import package::game::sound::CompressionRatio;
+import package::game::sound::SoundPosition;
+import package::game::sound::SoundLoopRange;
+import package::game::sound::SoundRepetition;
+import package::game::sound::Loudness;
+import package::game::sound::SoundObjectId;
 import package::game::sound::BusId;
+import package::game::sound::BusParent;
+import package::game::sound::BusEffect;
+import package::game::sound::SoundEffectId;
+import package::game::sound::FilterSlope;
+import package::game::sound::Ducking;
+import package::game::runtime;
 
+// --- syscall thin shim ---
+
+// バスを作る。まだどこにも繋がっていない。
 [[native(arch="wasm")]]
 fn sys_sound_bus_create() -> Uint {{
   call $sys_sound_bus_create
 }}
 
-pub(package) fn sound_bus_create() -> BusId {
-  BusId::new(sys_sound_bus_create())
-}
-
-// effect を列の末尾に挿し、effect の id を返す。繋ぐ (attach) 前だけ挿せる。
-// kind: 1 = pass filter (cfg1: 傾き 0 = 12 dB/oct, 1 = 24 dB/oct)、20 = compressor、
-// 30 = duck (cfg1: key のバス、cfg2: mode。0 = activity だけ)。
+// バスの effect の列の末尾に、作ってある effect を挿す。**繋ぐ (attach) 前だけ**挿せる。
+// 1 つの effect は 1 つのバスにしか挿せない (2 つ目は警告して無視される)。
 [[native(arch="wasm")]]
-pub(package) fn sound_bus_add_effect(bus: Uint, kind: Uint, cfg1: Uint, cfg2: Uint) -> Uint {{
+fn sys_sound_bus_add_effect(bus: Uint, effect: Uint) {{
   local.get 0
   local.get 1
-  local.get 2
-  local.get 3
   call $sys_sound_bus_add_effect
 }}
 
@@ -35,34 +57,32 @@ fn sys_sound_bus_attach(bus: Uint, parent: Uint) {{
   call $sys_sound_bus_attach
 }}
 
-pub(package) fn sound_bus_attach(bus: BusId, parent: BusId) {
-  sys_sound_bus_attach(bus.as_raw(), parent.as_raw())
-}
-
 // 根のバスを出力に繋ぐ。根は 1 本だけ (2 本目は警告して無視される)。
 [[native(arch="wasm")]]
-pub(package) fn sound_output_attach(bus: Uint) {{
+fn sys_sound_output_attach(bus: Uint) {{
   local.get 0
   call $sys_sound_output_attach
 }}
 
+// バスの部分木で鳴っている音を `after` ミリ秒後にすべて止める (積むだけ)。
 [[native(arch="wasm")]]
-pub(package) fn sound_bus_add_stop_all(bus: Uint, after: Uint) {{
+fn sys_sound_bus_add_stop_all(bus: Uint, after: Uint) {{
   local.get 0
   local.get 1
   call $sys_sound_bus_add_stop_all
 }}
 
+// `after` ミリ秒後に、バスとその部分木 (子のバス・effect・中で鳴っている音) を消す。
 [[native(arch="wasm")]]
-pub(package) fn sound_bus_delete(bus: Uint, after: Uint) {{
+fn sys_sound_bus_delete(bus: Uint, after: Uint) {{
   local.get 0
   local.get 1
   call $sys_sound_bus_delete
 }}
 
-// バスのパラメータ: 0 = 音量 [dB]。kind は canvas の遷移と同じ番号。
+// バスのパラメータに遷移を積む。param は `BusParam`、kind は遷移の種類 (canvas と共通)。
 [[native(arch="wasm")]]
-pub(package) fn sound_bus_add_transition(bus: Uint, param: Uint, kind: Uint, value: Float, after: Uint, duration: Uint) {{
+fn sys_sound_bus_add_transition(bus: Uint, param: Uint, kind: Uint, value: Float, after: Uint, duration: Uint) {{
   local.get 0
   local.get 1
   local.get 2
@@ -72,19 +92,30 @@ pub(package) fn sound_bus_add_transition(bus: Uint, param: Uint, kind: Uint, val
   call $sys_sound_bus_add_transition
 }}
 
+// バスのパラメータをすぐに設定する (発火を待たない)。
 [[native(arch="wasm")]]
-pub(package) fn sound_bus_set_param(bus: Uint, param: Uint, value: Float) {{
+fn sys_sound_bus_set_param(bus: Uint, param: Uint, value: Float) {{
   local.get 0
   local.get 1
   local.get 2
   call $sys_sound_bus_set_param
 }}
 
-// effect のパラメータ: pass filter は 0 = low_cut [Hz]、1 = high_cut [Hz]。
-// compressor は 0 = threshold [dB]、1 = ratio、2 = attack [ms]、3 = release [ms]、4 = makeup [dB]。
-// duck は 0 = 下げ幅 [dB]、1 = attack [ms]、2 = release [ms]。
+// effect を作る。まだどのバスにも挿さない。パラメータはエンジンの既定値で始まる。
+//
+// kind: 1 = pass filter (cfg1: 傾き 0 = 12 dB/oct、1 = 24 dB/oct)、20 = compressor、
+// 30 = duck (cfg1: key のバス、cfg2: mode。0 = activity だけ)。
 [[native(arch="wasm")]]
-pub(package) fn sound_effect_add_transition(effect: Uint, param: Uint, kind: Uint, value: Float, after: Uint, duration: Uint) {{
+fn sys_sound_effect_create(kind: Uint, cfg1: Uint, cfg2: Uint) -> Uint {{
+  local.get 0
+  local.get 1
+  local.get 2
+  call $sys_sound_effect_create
+}}
+
+// effect のパラメータに遷移を積む。param の番号は effect の種類ごと (`PassFilterParam` など)。
+[[native(arch="wasm")]]
+fn sys_sound_effect_add_transition(effect: Uint, param: Uint, kind: Uint, value: Float, after: Uint, duration: Uint) {{
   local.get 0
   local.get 1
   local.get 2
@@ -95,15 +126,15 @@ pub(package) fn sound_effect_add_transition(effect: Uint, param: Uint, kind: Uin
 }}
 
 [[native(arch="wasm")]]
-pub(package) fn sound_effect_set_param(effect: Uint, param: Uint, value: Float) {{
+fn sys_sound_effect_set_param(effect: Uint, param: Uint, value: Float) {{
   local.get 0
   local.get 1
   local.get 2
   call $sys_sound_effect_set_param
 }}
 
-// SoundObject を作る。まだ鳴らない。loop_end_ms = 0 はファイルの終わり。
-// normalize は 1 ならラウドネス正規化の補正を足す (段 2 で実装。それまでエンジンは無視する)。
+// SoundObject (再生 1 回) を作る。まだ鳴らない。
+// loop_end_ms = 0 はファイルの終わり。normalize が 1 ならラウドネス正規化の補正を足す (段 2。それまでエンジンは無視する)。
 [[native(arch="wasm")]]
 fn sys_sound_object_create(
   path: String,
@@ -126,30 +157,7 @@ fn sys_sound_object_create(
   call $sys_sound_create
 }}
 
-pub(package) fn sound_object_create(
-  path: String,
-  bus: BusId,
-  volume: Volume,
-  pos: Position,
-  loop_range: SoundLoopRange,
-  normalize: Bool,
-) -> Uint {
-  sys_sound_object_create(
-    path,
-    bus.as_raw(),
-    volume.as_db(),
-    pos.x(),
-    pox.y(),
-    loop_range.start().as_ms(),
-    match loop_range.end() {
-      Some(end) => end.as_ms(),
-      None => 0,
-    },
-    if normalize { 1 } else { 0 },
-  )
-}
-
-// repeat: 0 = 無限、n = n 回。offset_ms: 再生を始める位置。
+// 開始を積む。offset_ms は再生を始める位置、repeat は 0 = 無限、n = n 回。
 [[native(arch="wasm")]]
 fn sys_sound_object_add_start(id: Uint, after: Uint, offset_ms: Uint, repeat: Uint) {{
   local.get 0
@@ -159,27 +167,16 @@ fn sys_sound_object_add_start(id: Uint, after: Uint, offset_ms: Uint, repeat: Ui
   call $sys_sound_add_start
 }}
 
-pub(package) fn sound_object_add_start(id: SoundObjectId, after: Duration, offset: Duration, repeat: SoundRepetition) {
-  sys_sound_object_add_start(
-    id.as_raw(),
-    after.as_ms(),
-    offset.as_ms(),
-    match repeat {
-      SoundRepetition::Infinite => 0,
-      SoundRepetition::Count(count) => count,
-    });
-}
-
 [[native(arch="wasm")]]
-pub(package) fn sound_add_stop(id: Uint, after: Uint) {{
+fn sys_sound_object_add_stop(id: Uint, after: Uint) {{
   local.get 0
   local.get 1
   call $sys_sound_add_stop
 }}
 
-// SoundObject のパラメータ: 0 = 音量 [dB]、1 = x、2 = y (-1.0..1.0)。
+// SoundObject のパラメータに遷移を積む。param は `SoundObjectParam`。
 [[native(arch="wasm")]]
-pub(package) fn sound_add_transition(id: Uint, param: Uint, kind: Uint, value: Float, after: Uint, duration: Uint) {{
+fn sys_sound_object_add_transition(id: Uint, param: Uint, kind: Uint, value: Float, after: Uint, duration: Uint) {{
   local.get 0
   local.get 1
   local.get 2
@@ -189,21 +186,378 @@ pub(package) fn sound_add_transition(id: Uint, param: Uint, kind: Uint, value: F
   call $sys_sound_add_transition
 }}
 
+// 音のファイルの読み込みを先に始める。
 [[native(arch="wasm")]]
-pub(package) fn sound_preload(path: String) {{
+fn sys_sound_preload(path: String) {{
   local.get 0
   call $sys_sound_preload
 }}
 
-// 積まれた開始・停止・遷移を発火する (canvas の遷移と共通)。`sync` なら待たれ、クリックで畳まれる。
-[[native(arch="wasm")]]
-pub(package) fn sound_fire(sync: Uint) {{
-  local.get 0
-  call $sys_start_transitions
-}}
+// --- 番号 (エンジンとの取り決め) ---
 
-[[native(arch="wasm")]]
-pub(package) fn sound_await() {{
-  call $sys_await_transitions
-}}
+enum SoundObjectParam {
+  Volume,
+  X,
+  Y,
+}
 
+impl SoundObjectParam {
+  fn as_raw(self) -> Uint {
+    match self {
+      SoundObjectParam::Volume => 0,
+      SoundObjectParam::X => 1,
+      SoundObjectParam::Y => 2,
+    }
+  }
+}
+
+enum BusParam {
+  Volume,
+}
+
+impl BusParam {
+  fn as_raw(self) -> Uint {
+    match self {
+      BusParam::Volume => 0,
+    }
+  }
+}
+
+enum EffectKind {
+  PassFilter,
+  Compressor,
+  Duck,
+}
+
+impl EffectKind {
+  fn as_raw(self) -> Uint {
+    match self {
+      EffectKind::PassFilter => 1,
+      EffectKind::Compressor => 20,
+      EffectKind::Duck => 30,
+    }
+  }
+}
+
+impl FilterSlope {
+  fn as_raw(self) -> Uint {
+    match self {
+      FilterSlope::Gentle => 0,
+      FilterSlope::Steep => 1,
+    }
+  }
+}
+
+// duck の mode (cfg2)。段 1 は「key のバスで音が鳴っているか」だけ。
+enum DuckMode {
+  Activity,
+}
+
+impl DuckMode {
+  fn as_raw(self) -> Uint {
+    match self {
+      DuckMode::Activity => 0,
+    }
+  }
+}
+
+enum PassFilterParam {
+  LowCut,
+  HighCut,
+}
+
+impl PassFilterParam {
+  fn as_raw(self) -> Uint {
+    match self {
+      PassFilterParam::LowCut => 0,
+      PassFilterParam::HighCut => 1,
+    }
+  }
+
+  fn as_raw_cutoff(self, cutoff: Option[Hz]) -> Float {
+    match self {
+      PassFilterParam::LowCut => low_cut_as_raw(cutoff),
+      PassFilterParam::HighCut => high_cut_as_raw(cutoff),
+    }
+  }
+
+  // 遷移の値 (目標の周波数) を求める。
+  fn as_raw_cutoff_transition_value(self, transition: Transition[Option[Hz], Option[Hz]]) -> Float {
+    match self {
+      PassFilterParam::LowCut => transition.as_fval_with(fn(v: Option[Hz]) { low_cut_as_raw(v) }, fn(d: Option[Hz]) { low_cut_as_raw(d) }),
+      PassFilterParam::HighCut => transition.as_fval_with(fn(v: Option[Hz]) { high_cut_as_raw(v) }, fn(d: Option[Hz]) { high_cut_as_raw(d) }),
+    }
+  }
+}
+
+// 「削らない」(`None`) は、エンジンでは無効になる端の周波数で表す
+// (low_cut は 20 Hz 以下、high_cut は 20000 Hz 以上が無効。0 にしないのは Hz を対数で補間するため)。
+fn low_cut_as_raw(cutoff: Option[Hz]) -> Float {
+  match cutoff {
+    Some(hz) => hz.as_hz(),
+    None => 20.0,
+  }
+}
+
+fn high_cut_as_raw(cutoff: Option[Hz]) -> Float {
+  match cutoff {
+    Some(hz) => hz.as_hz(),
+    None => 20000.0,
+  }
+}
+
+enum CompressorParam {
+  Threshold,
+  Ratio,
+  Attack,
+  Release,
+  Makeup,
+}
+
+impl CompressorParam {
+  fn as_raw(self) -> Uint {
+    match self {
+      CompressorParam::Threshold => 0,
+      CompressorParam::Ratio => 1,
+      CompressorParam::Attack => 2,
+      CompressorParam::Release => 3,
+      CompressorParam::Makeup => 4,
+    }
+  }
+}
+
+enum DuckParam {
+  Amount,
+  Attack,
+  Release,
+}
+
+impl DuckParam {
+  fn as_raw(self) -> Uint {
+    match self {
+      DuckParam::Amount => 0,
+      DuckParam::Attack => 1,
+      DuckParam::Release => 2,
+    }
+  }
+}
+
+impl SoundRepetition {
+  fn as_raw(self) -> Uint {
+    match self {
+      SoundRepetition::Infinite => 0,
+      SoundRepetition::Count(count) => count,
+    }
+  }
+}
+
+impl Loudness {
+  fn as_raw(self) -> Uint {
+    match self {
+      Loudness::AsIs => 0,
+      Loudness::Normalize => 1,
+    }
+  }
+}
+
+// effect のパラメータの ms は f32 で渡す。
+fn duration_as_raw_param(d: Duration) -> Float {
+  runtime::uint_to_float(d.as_ms())
+}
+
+// --- wrapper with std types and its abstraction ---
+
+// バスを作り、音量を決め、effect を順に挿してから親 (または出力) に繋ぐ。
+//
+// エンジンでは「作る → effect を挿す → 繋ぐ」の 3 段だが (effect は繋ぐ前にしか挿せない)、
+// その途中の状態は std の外に見せない。UI の create → set_property → push_child と同じ形である。
+pub(package) fn sound_bus_create(parent: BusParent, volume: Volume, effects: Vec[BusEffect]) -> BusId {
+  let bus = sys_sound_bus_create();
+  sys_sound_bus_set_param(bus, BusParam::Volume.as_raw(), volume.as_db());
+  let i = 0;
+  while i < effects.len() {
+    let effect = match effects.get(i).unwrap() {
+      BusEffect::PassFilter(f) => f.id(),
+      BusEffect::Compressor(c) => c.id(),
+      BusEffect::Duck(d) => d.id(),
+    };
+    sys_sound_bus_add_effect(bus, effect.as_raw());
+    i = i + 1;
+  }
+  match parent {
+    BusParent::Output => { sys_sound_output_attach(bus); }
+    BusParent::Bus(p) => { sys_sound_bus_attach(bus, p.id().as_raw()); }
+  }
+  BusId::new(bus)
+}
+
+pub(package) fn sound_bus_set_volume(bus: BusId, volume: Volume) {
+  sys_sound_bus_set_param(bus.as_raw(), BusParam::Volume.as_raw(), volume.as_db());
+}
+
+pub(package) fn sound_bus_add_volume_transition(bus: BusId, transition: Transition[Volume, Volume], after: Duration) {
+  let param = BusParam::Volume.as_raw();
+  sys_sound_bus_add_transition(
+    bus.as_raw(),
+    param,
+    transition.as_raw_kind(),
+    transition.as_fval_with(fn(v: Volume) { v.as_db() }, fn(d: Volume) { d.as_db() }),
+    after.as_ms(),
+    transition.as_duration().as_ms());
+  match transition.loop_end(after) {
+    Some(end) => { sys_sound_bus_add_transition(bus.as_raw(), param, transition.stop().as_raw_kind(), 0.0, end.as_ms(), 0); }
+    None => {}
+  }
+}
+
+pub(package) fn sound_bus_add_stop_all(bus: BusId, after: Duration) {
+  sys_sound_bus_add_stop_all(bus.as_raw(), after.as_ms());
+}
+
+pub(package) fn sound_bus_delete(bus: BusId, after: Duration) {
+  sys_sound_bus_delete(bus.as_raw(), after.as_ms());
+}
+
+// --- effect ---
+
+pub(package) fn sound_effect_create_pass_filter(slope: FilterSlope, low_cut: Option[Hz], high_cut: Option[Hz]) -> SoundEffectId {
+  let effect = sys_sound_effect_create(EffectKind::PassFilter.as_raw(), slope.as_raw(), 0);
+  let id = SoundEffectId::new(effect);
+  sound_pass_filter_set_cutoff(id, PassFilterParam::LowCut, low_cut);
+  sound_pass_filter_set_cutoff(id, PassFilterParam::HighCut, high_cut);
+  id
+}
+
+fn sound_pass_filter_set_cutoff(filter: SoundEffectId, param: PassFilterParam, cutoff: Option[Hz]) {
+  sys_sound_effect_set_param(filter.as_raw(), param.as_raw(), param.as_raw_cutoff(cutoff));
+}
+
+fn sound_pass_filter_add_cutoff_transition(
+  filter: SoundEffectId, param: PassFilterParam, transition: Transition[Option[Hz], Option[Hz]], after: Duration,
+) {
+  sys_sound_effect_add_transition(
+    filter.as_raw(),
+    param.as_raw(),
+    transition.as_raw_kind(),
+    param.as_raw_cutoff_transition_value(transition),
+    after.as_ms(),
+    transition.as_duration().as_ms());
+  match transition.loop_end(after) {
+    Some(end) => {
+      sys_sound_effect_add_transition(filter.as_raw(), param.as_raw(), transition.stop().as_raw_kind(), 0.0, end.as_ms(), 0);
+    }
+    None => {}
+  }
+}
+
+pub(package) fn sound_pass_filter_set_low_cut(filter: SoundEffectId, cutoff: Option[Hz]) {
+  sound_pass_filter_set_cutoff(filter, PassFilterParam::LowCut, cutoff);
+}
+
+pub(package) fn sound_pass_filter_set_high_cut(filter: SoundEffectId, cutoff: Option[Hz]) {
+  sound_pass_filter_set_cutoff(filter, PassFilterParam::HighCut, cutoff);
+}
+
+pub(package) fn sound_pass_filter_add_low_cut_transition(
+  filter: SoundEffectId, transition: Transition[Option[Hz], Option[Hz]], after: Duration,
+) {
+  sound_pass_filter_add_cutoff_transition(filter, PassFilterParam::LowCut, transition, after);
+}
+
+pub(package) fn sound_pass_filter_add_high_cut_transition(
+  filter: SoundEffectId, transition: Transition[Option[Hz], Option[Hz]], after: Duration,
+) {
+  sound_pass_filter_add_cutoff_transition(filter, PassFilterParam::HighCut, transition, after);
+}
+
+pub(package) fn sound_effect_create_compressor(
+  threshold: Volume, ratio: CompressionRatio, attack: Duration, release: Duration, makeup: Volume,
+) -> SoundEffectId {
+  let effect = sys_sound_effect_create(EffectKind::Compressor.as_raw(), 0, 0);
+  sys_sound_effect_set_param(effect, CompressorParam::Threshold.as_raw(), threshold.as_db());
+  sys_sound_effect_set_param(effect, CompressorParam::Ratio.as_raw(), ratio.as_ratio());
+  sys_sound_effect_set_param(effect, CompressorParam::Attack.as_raw(), duration_as_raw_param(attack));
+  sys_sound_effect_set_param(effect, CompressorParam::Release.as_raw(), duration_as_raw_param(release));
+  sys_sound_effect_set_param(effect, CompressorParam::Makeup.as_raw(), makeup.as_db());
+  SoundEffectId::new(effect)
+}
+
+pub(package) fn sound_effect_create_duck(key: BusId, ducking: Ducking) -> SoundEffectId {
+  let effect = sys_sound_effect_create(EffectKind::Duck.as_raw(), key.as_raw(), DuckMode::Activity.as_raw());
+  let id = SoundEffectId::new(effect);
+  sound_duck_set(id, ducking);
+  id
+}
+
+pub(package) fn sound_duck_set(duck: SoundEffectId, ducking: Ducking) {
+  sys_sound_effect_set_param(duck.as_raw(), DuckParam::Amount.as_raw(), ducking.amount().as_db());
+  sys_sound_effect_set_param(duck.as_raw(), DuckParam::Attack.as_raw(), duration_as_raw_param(ducking.attack()));
+  sys_sound_effect_set_param(duck.as_raw(), DuckParam::Release.as_raw(), duration_as_raw_param(ducking.release()));
+}
+
+// --- SoundObject ---
+
+pub(package) fn sound_object_create(
+  path: String,
+  bus: BusId,
+  volume: Volume,
+  position: SoundPosition,
+  loop_range: SoundLoopRange,
+  loudness: Loudness,
+) -> SoundObjectId {
+  // ループの終わりの「ファイルの終わり」(`None`) は 0 で表す。
+  let loop_end_ms = match loop_range.end() {
+    Some(end) => end.as_ms(),
+    None => 0,
+  };
+  SoundObjectId::new(sys_sound_object_create(
+    path,
+    bus.as_raw(),
+    volume.as_db(),
+    position.x(),
+    position.y(),
+    loop_range.start().as_ms(),
+    loop_end_ms,
+    loudness.as_raw(),
+  ))
+}
+
+pub(package) fn sound_object_add_start(id: SoundObjectId, after: Duration, offset: Duration, repetition: SoundRepetition) {
+  sys_sound_object_add_start(id.as_raw(), after.as_ms(), offset.as_ms(), repetition.as_raw());
+}
+
+pub(package) fn sound_object_add_stop(id: SoundObjectId, after: Duration) {
+  sys_sound_object_add_stop(id.as_raw(), after.as_ms());
+}
+
+fn sound_object_add_param_transition[V, D](
+  id: SoundObjectId, param: SoundObjectParam, transition: Transition[V, D], value: Float, after: Duration,
+) {
+  sys_sound_object_add_transition(
+    id.as_raw(), param.as_raw(), transition.as_raw_kind(), value, after.as_ms(), transition.as_duration().as_ms());
+  match transition.loop_end(after) {
+    Some(end) => {
+      sys_sound_object_add_transition(id.as_raw(), param.as_raw(), transition.stop().as_raw_kind(), 0.0, end.as_ms(), 0);
+    }
+    None => {}
+  }
+}
+
+pub(package) fn sound_object_add_volume_transition(id: SoundObjectId, transition: Transition[Volume, Volume], after: Duration) {
+  sound_object_add_param_transition(
+    id, SoundObjectParam::Volume, transition, transition.as_fval_with(fn(v: Volume) { v.as_db() }, fn(d: Volume) { d.as_db() }), after);
+}
+
+// 位置は x と y の 2 つのパラメータに割って積む (同じ遷移で一緒に動く)。
+pub(package) fn sound_object_add_position_transition(
+  id: SoundObjectId, transition: Transition[SoundPosition, SoundPosition], after: Duration,
+) {
+  sound_object_add_param_transition(
+    id, SoundObjectParam::X, transition, transition.as_fval_with(fn(p: SoundPosition) { p.x() }, fn(p: SoundPosition) { p.x() }), after);
+  sound_object_add_param_transition(
+    id, SoundObjectParam::Y, transition, transition.as_fval_with(fn(p: SoundPosition) { p.y() }, fn(p: SoundPosition) { p.y() }), after);
+}
+
+pub(package) fn sound_preload(path: String) {
+  sys_sound_preload(path);
+}

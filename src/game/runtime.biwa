@@ -2,6 +2,7 @@ pub(super) mod content;
 pub(super) mod canvas;
 pub(super) mod ui;
 pub(super) mod sound;
+pub(super) mod timeline;
 
 // エンジン (基盤ランタイム) との境界。
 //
@@ -71,13 +72,14 @@ pub(super) mod sound;
   ;; Sound SubSystem (docs/sound.md)。id は SoundObject・Bus・Effect の空間ごとにエンジンが 1 から振る。
   ;; 時刻は ms (i32)、音量は dB (f32)。
   (import "biwa:engine" "sys_sound_bus_create" (func $sys_sound_bus_create (result i32)))
-  (import "biwa:engine" "sys_sound_bus_add_effect" (func $sys_sound_bus_add_effect (param i32 i32 i32 i32) (result i32)))
+  (import "biwa:engine" "sys_sound_bus_add_effect" (func $sys_sound_bus_add_effect (param i32 i32)))
   (import "biwa:engine" "sys_sound_bus_attach" (func $sys_sound_bus_attach (param i32 i32)))
   (import "biwa:engine" "sys_sound_output_attach" (func $sys_sound_output_attach (param i32)))
   (import "biwa:engine" "sys_sound_bus_add_stop_all" (func $sys_sound_bus_add_stop_all (param i32 i32)))
   (import "biwa:engine" "sys_sound_bus_delete" (func $sys_sound_bus_delete (param i32 i32)))
   (import "biwa:engine" "sys_sound_bus_add_transition" (func $sys_sound_bus_add_transition (param i32 i32 i32 f32 i32 i32)))
   (import "biwa:engine" "sys_sound_bus_set_param" (func $sys_sound_bus_set_param (param i32 i32 f32)))
+  (import "biwa:engine" "sys_sound_effect_create" (func $sys_sound_effect_create (param i32 i32 i32) (result i32)))
   (import "biwa:engine" "sys_sound_effect_add_transition" (func $sys_sound_effect_add_transition (param i32 i32 i32 f32 i32 i32)))
   (import "biwa:engine" "sys_sound_effect_set_param" (func $sys_sound_effect_set_param (param i32 i32 f32)))
   (import "biwa:engine" "sys_sound_create" (func $sys_sound_create (param externref i32 f32 f32 f32 i32 i32 i32) (result i32)))
@@ -100,52 +102,7 @@ pub(super) mod sound;
   (import "biwa:engine" "sys_map_get" (func $sys_map_get (param externref anyref) (result anyref)))
 }}
 
-import package::option::Option;
-import package::option::Option::Some;
-import package::option::Option::None;
-import package::convert::Into;
 import package::string::String;
-import package::game::color::Alpha;
-import package::game::canvas::Cx;
-import package::game::canvas::Cy;
-import package::game::canvas::Cw;
-import package::game::canvas::Ch;
-import package::game::canvas::Theta;
-import package::game::canvas::CanvasObjectParam;
-import package::game::canvas::CanvasObjectTransition;
-import package::game::canvas::CanvasObjectXTransition;
-import package::game::canvas::CanvasObjectYTransition;
-import package::game::canvas::CanvasObjectWTransition;
-import package::game::canvas::CanvasObjectHTransition;
-import package::game::canvas::CanvasObjectAlphaTransition;
-import package::game::canvas::CanvasObjectThetaTransition;
-import package::game::canvas::CanvasObjectTransitionContinuity;
-import package::game::canvas::CanvasObjectTransitionSyncMode;
-import package::game::color::Color;
-import package::game::font::TextWeight;
-import package::game::ui::Size;
-import package::game::ui::UiId;
-import package::game::ui::UiSize;
-import package::game::ui::UiElement;
-import package::game::ui::UiProperty;
-import package::game::ui::UiEventHandler;
-import package::game::ui::WindowHandle;
-import package::game::ui::CanvasHandle;
-import package::time::Duration;
-
-// ---- Central Synchronized Tick ----
-
-pub(super) fn wait() {
-  content::sys_wait();
-}
-
-// エンジン時計の上で指定時間シーンを止める (ポーズ中は進まない)。
-[[native(arch="wasm")]]
-pub(super) fn sleep(ms: Uint) {{
-  local.get 0
-  call $sys_sleep
-}}
-
 
 // --- 値の変換 --------------------------------------------------------------
 //

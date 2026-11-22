@@ -20,15 +20,14 @@ import package::game::canvas::Cw;
 import package::game::canvas::Ch;
 import package::game::canvas::Theta;
 import package::game::canvas::CanvasObjectParam;
-import package::game::canvas::CanvasObjectTransition;
+import package::game::color::Alpha;
+import package::game::timeline::Transition;
 import package::game::canvas::CanvasObjectXTransition;
 import package::game::canvas::CanvasObjectYTransition;
 import package::game::canvas::CanvasObjectWTransition;
 import package::game::canvas::CanvasObjectHTransition;
 import package::game::canvas::CanvasObjectAlphaTransition;
 import package::game::canvas::CanvasObjectThetaTransition;
-import package::game::canvas::CanvasObjectTransitionContinuity;
-import package::game::canvas::CanvasObjectTransitionSyncMode;
 import package::game::ui::CanvasHandle;
 import package::time::Duration;
 
@@ -92,7 +91,7 @@ pub(package) fn canvas_object_delete(id: Uint, after: Duration) {
   sys_canvas_object_delete(id, after.as_ms());
 }
 
-// 次の `start_transitions` に備えて遷移を積む。積むだけで何も起きない。
+// 次の発火 (`timeline_fire`) に備えて遷移を積む。積むだけで何も起きない。
 //
 // `value` は一度限りの遷移では目標値、周期的な遷移では振幅。
 // `after` は発火からの遅れ、`duration` は遷移時間 (周期系では周期)。
@@ -128,107 +127,13 @@ impl CanvasObjectParam {
   }
 }
 
-// private helpers
-impl[V, D] CanvasObjectTransition[V, D] {
-  fn as_raw_kind(self) -> Uint {
-    match self {
-      CanvasObjectTransition::None => 0,
-      CanvasObjectTransition::Linear(_) => 1,
-      CanvasObjectTransition::EaseIn(_) => 2,
-      CanvasObjectTransition::EaseOut(_) => 3,
-      CanvasObjectTransition::EaseInOut(_) => 4,
-      CanvasObjectTransition::EaseOutIn(_) => 5,
-      CanvasObjectTransition::Sin(_) => 16,
-      CanvasObjectTransition::Triangle(_) => 17,
-      CanvasObjectTransition::Square(_) => 18,
-      CanvasObjectTransition::Saw(_) => 19,
-    }
-  }
-  
-  fn as_duration(self) -> Duration {
-    match self {
-      CanvasObjectTransition::None => Duration::ms(0),
-      CanvasObjectTransition::Linear(once) => once.duration(),
-      CanvasObjectTransition::EaseIn(once) => once.duration(),
-      CanvasObjectTransition::EaseOut(once) => once.duration(),
-      CanvasObjectTransition::EaseInOut(once) => once.duration(),
-      CanvasObjectTransition::EaseOutIn(once) => once.duration(),
-      CanvasObjectTransition::Sin(lo) => lo.period(),
-      CanvasObjectTransition::Triangle(lo) => lo.period(),
-      CanvasObjectTransition::Square(lo) => lo.period(),
-      CanvasObjectTransition::Saw(lo) => lo.period(),
-    }
-  }
-
-  // 同じ型の `None` (そのパラメータの遷移を止める遷移)。
-  //
-  // `CanvasObjectTransition::None` と直接書くと、ペイロードが無いので
-  // 型引数 (V, D) がどこからも決まらない。戻り値を `Self` にして `self` の型から決める。
-  fn stop(self) -> Self {
-    CanvasObjectTransition::None
-  }
-
-  fn stop_loop_if_needed(self, id: Uint, param: CanvasObjectParam, after: Duration) {
-    let opt_continuity = match self {
-      CanvasObjectTransition::Sin(lo) => Some(lo.continuity()),
-      CanvasObjectTransition::Triangle(lo) => Some(lo.continuity()),
-      CanvasObjectTransition::Square(lo) => Some(lo.continuity()),
-      CanvasObjectTransition::Saw(lo) => Some(lo.continuity()),
-      _ => None,
-    };
-
-    match opt_continuity {
-      Some(continuity) => {
-        match continuity {
-          CanvasObjectTransitionContinuity::Infinite => {},
-          CanvasObjectTransitionContinuity::For(until) => {
-            sys_canvas_object_add_transition(
-              id,
-              param.as_raw(),
-              self.stop().as_raw_kind(),
-              0,
-              0.0,
-              after.add(until).as_ms(),
-              0);
-          },
-        }
-      },
-      None => {},
-    }
-  }
-}
-
-impl[V: Into[Float], D: Into[Float]] CanvasObjectTransition[V, D] {
-  fn as_fval(self) -> Float {
-    match self {
-      CanvasObjectTransition::None => 0.0,
-      CanvasObjectTransition::Linear(once) => once.value().into(),
-      CanvasObjectTransition::EaseIn(once) => once.value().into(),
-      CanvasObjectTransition::EaseOut(once) => once.value().into(),
-      CanvasObjectTransition::EaseInOut(once) => once.value().into(),
-      CanvasObjectTransition::EaseOutIn(once) => once.value().into(),
-      CanvasObjectTransition::Sin(lo) => lo.diff().into(),
-      CanvasObjectTransition::Triangle(lo) => lo.diff().into(),
-      CanvasObjectTransition::Square(lo) => lo.diff().into(),
-      CanvasObjectTransition::Saw(lo) => lo.diff().into(),
-    }
-  }
-}
-
-impl[V: Into[Uint], D: Into[Uint]] CanvasObjectTransition[V, D] {
-  fn as_uval(self) -> Uint {
-    match self {
-      CanvasObjectTransition::None => 0,
-      CanvasObjectTransition::Linear(once) => once.value().into(),
-      CanvasObjectTransition::EaseIn(once) => once.value().into(),
-      CanvasObjectTransition::EaseOut(once) => once.value().into(),
-      CanvasObjectTransition::EaseInOut(once) => once.value().into(),
-      CanvasObjectTransition::EaseOutIn(once) => once.value().into(),
-      CanvasObjectTransition::Sin(lo) => lo.diff().into(),
-      CanvasObjectTransition::Triangle(lo) => lo.diff().into(),
-      CanvasObjectTransition::Square(lo) => lo.diff().into(),
-      CanvasObjectTransition::Saw(lo) => lo.diff().into(),
-    }
+// 周期系で終わりがあるものは、終わる時刻に `None` を積んで止める (`Transition::loop_end`)。
+fn canvas_object_stop_loop_if_needed[V, D](id: Uint, param: CanvasObjectParam, transition: Transition[V, D], after: Duration) {
+  match transition.loop_end(after) {
+    Some(end) => {
+      sys_canvas_object_add_transition(id, param.as_raw(), transition.stop().as_raw_kind(), 0, 0.0, end.as_ms(), 0);
+    },
+    None => {},
   }
 }
 
@@ -244,7 +149,7 @@ pub(package) fn canvas_object_add_x_transition(id: Uint, transition: CanvasObjec
     after.as_ms(),
     transition.as_duration().as_ms());
 
-  transition.stop_loop_if_needed(id, CanvasObjectParam::X, after);
+  canvas_object_stop_loop_if_needed(id, CanvasObjectParam::X, transition, after);
 }
 
 pub(package) fn canvas_object_add_y_transition(id: Uint, transition: CanvasObjectYTransition, after: Duration) {
@@ -257,7 +162,7 @@ pub(package) fn canvas_object_add_y_transition(id: Uint, transition: CanvasObjec
     after.as_ms(),
     transition.as_duration().as_ms());
 
-  transition.stop_loop_if_needed(id, CanvasObjectParam::Y, after);
+  canvas_object_stop_loop_if_needed(id, CanvasObjectParam::Y, transition, after);
 }
 
 pub(package) fn canvas_object_add_w_transition(id: Uint, transition: CanvasObjectWTransition, after: Duration) {
@@ -270,7 +175,7 @@ pub(package) fn canvas_object_add_w_transition(id: Uint, transition: CanvasObjec
     after.as_ms(),
     transition.as_duration().as_ms());
 
-  transition.stop_loop_if_needed(id, CanvasObjectParam::W, after);
+  canvas_object_stop_loop_if_needed(id, CanvasObjectParam::W, transition, after);
 }
 
 pub(package) fn canvas_object_add_h_transition(id: Uint, transition: CanvasObjectHTransition, after: Duration) {
@@ -283,7 +188,7 @@ pub(package) fn canvas_object_add_h_transition(id: Uint, transition: CanvasObjec
     after.as_ms(),
     transition.as_duration().as_ms());
 
-  transition.stop_loop_if_needed(id, CanvasObjectParam::H, after);
+  canvas_object_stop_loop_if_needed(id, CanvasObjectParam::H, transition, after);
 }
 
 pub(package) fn canvas_object_add_alpha_transition(id: Uint, transition: CanvasObjectAlphaTransition, after: Duration) {
@@ -296,7 +201,7 @@ pub(package) fn canvas_object_add_alpha_transition(id: Uint, transition: CanvasO
     after.as_ms(),
     transition.as_duration().as_ms());
 
-  transition.stop_loop_if_needed(id, CanvasObjectParam::Alpha, after);
+  canvas_object_stop_loop_if_needed(id, CanvasObjectParam::Alpha, transition, after);
 }
 
 pub(package) fn canvas_object_add_theta_transition(id: Uint, transition: CanvasObjectThetaTransition, after: Duration) {
@@ -309,44 +214,5 @@ pub(package) fn canvas_object_add_theta_transition(id: Uint, transition: CanvasO
     after.as_ms(),
     transition.as_duration().as_ms());
 
-  transition.stop_loop_if_needed(id, CanvasObjectParam::Theta, after);
+  canvas_object_stop_loop_if_needed(id, CanvasObjectParam::Theta, transition, after);
 }
-
-// 積まれた遷移を発火する。オブジェクトを跨いで一斉に始まる。
-//
-// 置き換わるのは積まれた遷移が触れているパラメータだけなので、
-// 別のオブジェクトや別のパラメータで走っているアニメーションは壊れない。
-//
-// `sync` が 0 でなければ、この演出はテキストの進行と結びつく。
-// クリックはまずこれを完了させ、`await_transitions` が待つ対象にもなる。
-[[native(arch="wasm")]]
-fn sys_canvas_start_transitions(sync: Uint) {{
-  local.get 0
-  call $sys_start_transitions
-}}
-
-impl CanvasObjectTransitionSyncMode {
-  fn as_raw(self) -> Uint {
-    match self {
-      CanvasObjectTransitionSyncMode::Free => 0,
-      CanvasObjectTransitionSyncMode::Sync => 1,
-    }
-  }
-}
-
-pub(package) fn canvas_start_transitions(sync: CanvasObjectTransitionSyncMode) {
-  sys_canvas_start_transitions(sync.as_raw());
-}
-
-// sync 印の演出がすべて終わるまでシーンを止める。
-[[native(arch="wasm")]]
-pub(package) fn canvas_await_transitions() {{
-  call $sys_await_transitions
-}}
-
-// エンジン時計の上で指定時間シーンを止める (ポーズ中は進まない)。
-[[native(arch="wasm")]]
-pub(package) fn sleep(ms: Uint) {{
-  local.get 0
-  call $sys_sleep
-}}

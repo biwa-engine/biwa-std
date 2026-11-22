@@ -19,21 +19,26 @@ import package::game::canvas::Position;
 import package::game::color::Alpha;
 import package::game::sound::Bus;
 import package::game::sound::Sound;
-import package::game::base_engine::sound_fire;
+import package::game::sound::SoundPlayback;
+import package::game::sound::SoundRepetition;
+import package::game::sound::Loudness;
+import package::game::sound::Volume;
+import package::game::timeline::TimelineSync;
+import package::game::runtime;
 
 impl[P] Character[P] {
   // ボイスを鳴らす。同じキャラの前のボイスは止める (違うキャラのボイスは重なってよい)。
   // ボイスはラウドネス正規化をする。`>>` で止まるかはプレイヤーの設定 (`voice_continues`) で決まる。
   pub fn voice(self, path: String) -> Self {
     self.voice_bus.queue_stop_all(Duration::ms(0));
-    let object = Sound::new(path).create_on(self.voice_bus, TRUE, package::game::sound::Volume::db(0.0));
-    object.queue_start(1);
-    sound_fire(0);
+    let playback = SoundPlayback::new(SoundRepetition::Count(1), Duration::ms(0), None, Loudness::Normalize);
+    self.voice_bus.queue_play(Sound::file(path), playback);
+    runtime::timeline::timeline_fire(TimelineSync::Free);
     self
   }
 
   // このキャラのボイスの音量 (バスの音量)。
-  pub fn set_voice_volume(self, v: package::game::sound::Volume) {
+  pub fn set_voice_volume(self, v: Volume) {
     self.voice_bus.set_volume(v);
   }
 
@@ -56,7 +61,7 @@ impl[P] Character[P] {
       current_visual = None,
       current_face = None,
       current_position = None,
-      voice_bus = Bus::new().attach(game.window.sound().voice()),
+      voice_bus = Bus::under(game.window.sound().voice()),
       window = game.window,
     }
   }

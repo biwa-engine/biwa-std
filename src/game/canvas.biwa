@@ -21,6 +21,12 @@ import package::time::Duration;
 import package::game::color::Alpha;
 import package::game::ui::CanvasHandle;
 import package::game::image::Image;
+import package::game::timeline::TimelineSync;
+import package::game::timeline::Transition;
+import package::game::timeline::TransitionOnce;
+import package::game::timeline::TransitionLoop;
+import package::game::timeline::TransitionContinuity;
+import package::game::runtime;
 
 // canvas 上の x 座標。
 pub struct Cx {
@@ -118,68 +124,18 @@ pub(super) enum CanvasObjectParam {
   Theta,
 }
 
-pub(super) enum CanvasObjectTransitionSyncMode {
-  Free,
-  Sync,
-}
-
-// V: value
-// D: difference
-pub(super) enum CanvasObjectTransition[V, D] {
-  None,
-  Linear(CanvasObjectTransitionOnce[V]),
-  EaseIn(CanvasObjectTransitionOnce[V]),
-  EaseOut(CanvasObjectTransitionOnce[V]),
-  EaseInOut(CanvasObjectTransitionOnce[V]),
-  EaseOutIn(CanvasObjectTransitionOnce[V]),
-  Sin(CanvasObjectTransitionLoop[D]),
-  Triangle(CanvasObjectTransitionLoop[D]),
-  Square(CanvasObjectTransitionLoop[D]),
-  Saw(CanvasObjectTransitionLoop[D]),
-}
-
-pub(super) struct CanvasObjectTransitionOnce[V] {
-  value: V,
-  duration: Duration,
-}
-
-pub(super) struct CanvasObjectTransitionLoop[D] {
-  diff: D,
-  period: Duration,
-  continuity: CanvasObjectTransitionContinuity,
-}
-
-impl[V] CanvasObjectTransitionOnce[V] {
-  pub(super) fn value(self) -> V { self.value }
-
-  pub(super) fn duration(self) -> Duration { self.duration }
-}
-
-impl[D] CanvasObjectTransitionLoop[D] {
-  pub(super) fn diff(self) -> D { self.diff }
-
-  pub(super) fn period(self) -> Duration { self.period }
-
-  pub(super) fn continuity(self) -> CanvasObjectTransitionContinuity { self.continuity }
-}
-
-pub(super) enum CanvasObjectTransitionContinuity {
-  Infinite,
-  For(Duration),
-}
-
 // チェーンに積んだ遷移 1 つと、その開始時刻 (`animate()` 系で発火してからの遅れ)。
 pub(super) struct CanvasObjectScheduledTransition[V, D] {
   after: Duration,
-  transition: CanvasObjectTransition[V, D],
+  transition: Transition[V, D],
 }
 
-pub(super) type CanvasObjectXTransition = CanvasObjectTransition[Cx, Cw];
-pub(super) type CanvasObjectYTransition = CanvasObjectTransition[Cy, Ch];
-pub(super) type CanvasObjectWTransition = CanvasObjectTransition[Cw, Cw];
-pub(super) type CanvasObjectHTransition = CanvasObjectTransition[Ch, Ch];
-pub(super) type CanvasObjectAlphaTransition = CanvasObjectTransition[Alpha, Alpha];
-pub(super) type CanvasObjectThetaTransition = CanvasObjectTransition[Theta, Theta];
+pub(super) type CanvasObjectXTransition = Transition[Cx, Cw];
+pub(super) type CanvasObjectYTransition = Transition[Cy, Ch];
+pub(super) type CanvasObjectWTransition = Transition[Cw, Cw];
+pub(super) type CanvasObjectHTransition = Transition[Ch, Ch];
+pub(super) type CanvasObjectAlphaTransition = Transition[Alpha, Alpha];
+pub(super) type CanvasObjectThetaTransition = Transition[Theta, Theta];
 
 // --- canvas 上のオブジェクト -----------------------------------------------
 
@@ -210,7 +166,7 @@ impl CanvasObject {
   pub(super) fn create(
     image: Image, canvas: CanvasHandle, layer: Uint, x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha,
   ) -> Self {
-    let id = package::game::base_engine::create_object(
+    let id = runtime::canvas::canvas_object_create(
       canvas, image.path(), layer, x, y, w, h, alpha, Theta::theta(0.0));
 
     Self {
@@ -241,7 +197,7 @@ impl CanvasObject {
   pub(super) fn alpha(self) -> Alpha { self.alpha }
 
   pub fn delete(self, after: Duration) {
-    package::game::base_engine::delete_object(self.id, after);
+    runtime::canvas::canvas_object_delete(self.id, after);
   }
 
   // --- チェーンの入口 ---
@@ -318,7 +274,7 @@ impl[V, D] ObjectParamChain[V, D] {
   }
 
   // 遷移を今の開始時刻で積み、開始時刻を `advance` だけ進める。
-  fn push(self, transition: CanvasObjectTransition[V, D], advance: Duration) {
+  fn push(self, transition: Transition[V, D], advance: Duration) {
     self.transitions.push(CanvasObjectScheduledTransition {
       after = self.after,
       transition = transition,
@@ -326,7 +282,7 @@ impl[V, D] ObjectParamChain[V, D] {
     self.after = self.after.add(advance);
   }
 
-  fn push_once(self, transition: CanvasObjectTransition[V, D], value: V, duration: Duration) -> Self {
+  fn push_once(self, transition: Transition[V, D], value: V, duration: Duration) -> Self {
     self.push(transition, duration);
     self.target = Some(value);
     self
@@ -334,42 +290,38 @@ impl[V, D] ObjectParamChain[V, D] {
 
   pub fn linear_then(self, value: V, duration: Duration) -> Self {
     self.push_once(
-      CanvasObjectTransition::Linear(CanvasObjectTransitionOnce { value = value, duration = duration }),
+      Transition::Linear(TransitionOnce::new(value, duration)),
       value, duration)
   }
 
   pub fn easein_then(self, value: V, duration: Duration) -> Self {
     self.push_once(
-      CanvasObjectTransition::EaseIn(CanvasObjectTransitionOnce { value = value, duration = duration }),
+      Transition::EaseIn(TransitionOnce::new(value, duration)),
       value, duration)
   }
 
   pub fn easeout_then(self, value: V, duration: Duration) -> Self {
     self.push_once(
-      CanvasObjectTransition::EaseOut(CanvasObjectTransitionOnce { value = value, duration = duration }),
+      Transition::EaseOut(TransitionOnce::new(value, duration)),
       value, duration)
   }
 
   pub fn easeinout_then(self, value: V, duration: Duration) -> Self {
     self.push_once(
-      CanvasObjectTransition::EaseInOut(CanvasObjectTransitionOnce { value = value, duration = duration }),
+      Transition::EaseInOut(TransitionOnce::new(value, duration)),
       value, duration)
   }
 
   pub fn easeoutin_then(self, value: V, duration: Duration) -> Self {
     self.push_once(
-      CanvasObjectTransition::EaseOutIn(CanvasObjectTransitionOnce { value = value, duration = duration }),
+      Transition::EaseOutIn(TransitionOnce::new(value, duration)),
       value, duration)
   }
 
   // `until` の間だけ揺らす。多くの場合は終わりを決めたいのでこちらを使う。
   pub fn sin_then(self, amplitude: D, period: Duration, until: Duration) -> Self {
     self.push(
-      CanvasObjectTransition::Sin(CanvasObjectTransitionLoop {
-        diff = amplitude,
-        period = period,
-        continuity = CanvasObjectTransitionContinuity::For(until),
-      }),
+      Transition::Sin(TransitionLoop::new(amplitude, period, TransitionContinuity::For(until))),
       until);
     self
   }
@@ -377,18 +329,14 @@ impl[V, D] ObjectParamChain[V, D] {
   // 止めずに揺らし続ける。次に同じパラメータを駆動するまで続く。
   pub fn sin_forever(self, amplitude: D, period: Duration) -> Self {
     self.push(
-      CanvasObjectTransition::Sin(CanvasObjectTransitionLoop {
-        diff = amplitude,
-        period = period,
-        continuity = CanvasObjectTransitionContinuity::Infinite,
-      }),
+      Transition::Sin(TransitionLoop::new(amplitude, period, TransitionContinuity::Infinite)),
       Duration::ms(0));
     self
   }
 
   // その時点でそのパラメータの遷移を止める。
   pub fn stop_then(self) -> Self {
-    self.push(CanvasObjectTransition::None, Duration::ms(0));
+    self.push(Transition::None, Duration::ms(0));
     self
   }
 
@@ -421,13 +369,13 @@ impl ObjectParamXChain {
 
   pub fn animate(self) -> CanvasObject {
     self.submit();
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::timeline::timeline_fire(TimelineSync::Sync);
     self.obj
   }
 
   pub fn animate_free(self) -> CanvasObject {
     self.submit();
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::timeline::timeline_fire(TimelineSync::Free);
     self.obj
   }
 }
@@ -449,13 +397,13 @@ impl ObjectParamYChain {
 
   pub fn animate(self) -> CanvasObject {
     self.submit();
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::timeline::timeline_fire(TimelineSync::Sync);
     self.obj
   }
 
   pub fn animate_free(self) -> CanvasObject {
     self.submit();
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::timeline::timeline_fire(TimelineSync::Free);
     self.obj
   }
 }
@@ -477,13 +425,13 @@ impl ObjectParamWChain {
 
   pub fn animate(self) -> CanvasObject {
     self.submit();
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::timeline::timeline_fire(TimelineSync::Sync);
     self.obj
   }
 
   pub fn animate_free(self) -> CanvasObject {
     self.submit();
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::timeline::timeline_fire(TimelineSync::Free);
     self.obj
   }
 }
@@ -505,13 +453,13 @@ impl ObjectParamHChain {
 
   pub fn animate(self) -> CanvasObject {
     self.submit();
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::timeline::timeline_fire(TimelineSync::Sync);
     self.obj
   }
 
   pub fn animate_free(self) -> CanvasObject {
     self.submit();
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::timeline::timeline_fire(TimelineSync::Free);
     self.obj
   }
 }
@@ -533,13 +481,13 @@ impl ObjectParamAlphaChain {
 
   pub fn animate(self) -> CanvasObject {
     self.submit();
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::timeline::timeline_fire(TimelineSync::Sync);
     self.obj
   }
 
   pub fn animate_free(self) -> CanvasObject {
     self.submit();
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::timeline::timeline_fire(TimelineSync::Free);
     self.obj
   }
 }
@@ -561,13 +509,13 @@ impl ObjectParamThetaChain {
 
   pub fn animate(self) -> CanvasObject {
     self.submit();
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::timeline::timeline_fire(TimelineSync::Sync);
     self.obj
   }
 
   pub fn animate_free(self) -> CanvasObject {
     self.submit();
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::timeline::timeline_fire(TimelineSync::Free);
     self.obj
   }
 }
@@ -588,7 +536,7 @@ pub struct ObjectBatchChain {
   theta: Option[CanvasObjectThetaBatchTransition],
 }
 
-// 時間がまだ決まっていない遷移。`animate_for()` で時間を与えて `CanvasObjectTransition` にする。
+// 時間がまだ決まっていない遷移。`animate_for()` で時間を与えて `Transition` にする。
 //
 // V: value
 // D: difference
@@ -622,18 +570,18 @@ type CanvasObjectAlphaBatchTransition = CanvasObjectBatchTransition[Alpha, Alpha
 type CanvasObjectThetaBatchTransition = CanvasObjectBatchTransition[Theta, Theta];
 
 impl[V, D] CanvasObjectBatchTransition[V, D] {
-  fn as_transition(self, duration: Duration) -> CanvasObjectTransition[V, D] {
+  fn as_transition(self, duration: Duration) -> Transition[V, D] {
     match self {
-      CanvasObjectBatchTransition::None => CanvasObjectTransition::None,
-      CanvasObjectBatchTransition::Linear(once) => CanvasObjectTransition::Linear(once.as_transition_once(duration)),
-      CanvasObjectBatchTransition::EaseIn(once) => CanvasObjectTransition::EaseIn(once.as_transition_once(duration)),
-      CanvasObjectBatchTransition::EaseOut(once) => CanvasObjectTransition::EaseOut(once.as_transition_once(duration)),
-      CanvasObjectBatchTransition::EaseInOut(once) => CanvasObjectTransition::EaseInOut(once.as_transition_once(duration)),
-      CanvasObjectBatchTransition::EaseOutIn(once) => CanvasObjectTransition::EaseOutIn(once.as_transition_once(duration)),
-      CanvasObjectBatchTransition::Sin(lo) => CanvasObjectTransition::Sin(lo.as_transition_loop(duration)),
-      CanvasObjectBatchTransition::Triangle(lo) => CanvasObjectTransition::Triangle(lo.as_transition_loop(duration)),
-      CanvasObjectBatchTransition::Square(lo) => CanvasObjectTransition::Square(lo.as_transition_loop(duration)),
-      CanvasObjectBatchTransition::Saw(lo) => CanvasObjectTransition::Saw(lo.as_transition_loop(duration)),
+      CanvasObjectBatchTransition::None => Transition::None,
+      CanvasObjectBatchTransition::Linear(once) => Transition::Linear(once.as_transition_once(duration)),
+      CanvasObjectBatchTransition::EaseIn(once) => Transition::EaseIn(once.as_transition_once(duration)),
+      CanvasObjectBatchTransition::EaseOut(once) => Transition::EaseOut(once.as_transition_once(duration)),
+      CanvasObjectBatchTransition::EaseInOut(once) => Transition::EaseInOut(once.as_transition_once(duration)),
+      CanvasObjectBatchTransition::EaseOutIn(once) => Transition::EaseOutIn(once.as_transition_once(duration)),
+      CanvasObjectBatchTransition::Sin(lo) => Transition::Sin(lo.as_transition_loop(duration)),
+      CanvasObjectBatchTransition::Triangle(lo) => Transition::Triangle(lo.as_transition_loop(duration)),
+      CanvasObjectBatchTransition::Square(lo) => Transition::Square(lo.as_transition_loop(duration)),
+      CanvasObjectBatchTransition::Saw(lo) => Transition::Saw(lo.as_transition_loop(duration)),
     }
   }
 
@@ -651,22 +599,15 @@ impl[V, D] CanvasObjectBatchTransition[V, D] {
 }
 
 impl[V] CanvasObjectBatchTransitionOnce[V] {
-  fn as_transition_once(self, duration: Duration) -> CanvasObjectTransitionOnce[V] {
-    CanvasObjectTransitionOnce {
-      value = self.value,
-      duration = duration,
-    }
+  fn as_transition_once(self, duration: Duration) -> TransitionOnce[V] {
+    TransitionOnce::new(self.value, duration)
   }
 }
 
 impl[D] CanvasObjectBatchTransitionLoop[D] {
   // 周期系はその周期で揺れ、`duration` 経ったところで止まる。
-  fn as_transition_loop(self, duration: Duration) -> CanvasObjectTransitionLoop[D] {
-    CanvasObjectTransitionLoop {
-      diff = self.diff,
-      period = self.period,
-      continuity = CanvasObjectTransitionContinuity::For(duration),
-    }
+  fn as_transition_loop(self, duration: Duration) -> TransitionLoop[D] {
+    TransitionLoop::new(self.diff, self.period, TransitionContinuity::For(duration))
   }
 }
 
@@ -769,14 +710,14 @@ impl ObjectBatchChain {
   // 周期系はその周期で揺れ、`duration` 経ったところで止まる。
   pub fn animate_for(self, duration: Duration) -> CanvasObject {
     self.stage(duration);
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::timeline::timeline_fire(TimelineSync::Sync);
     self.obj
   }
 
   // テキストとは無関係に走らせる版。クリックでは飛ばない。
   pub fn animate_free_for(self, duration: Duration) -> CanvasObject {
     self.stage(duration);
-    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::timeline::timeline_fire(TimelineSync::Free);
     self.obj
   }
 

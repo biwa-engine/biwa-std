@@ -96,7 +96,7 @@ impl WindowHandle {
   //
   // クリックはどの出力先にも属さないので ui_id を取らない。
   pub(super) fn wait(self) {
-    runtime::wait();
+    runtime::timeline::timeline_wait_click();
   }
 
   pub(super) fn canvas(self) -> CanvasHandle {
