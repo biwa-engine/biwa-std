@@ -409,7 +409,7 @@ impl ObjectParamXChain {
     let i = 0;
     while i < self.transitions.len() {
       let scheduled = self.transitions.get(i).unwrap();
-      package::game::base_engine::add_x_transition(
+      runtime::canvas::canvas_object_add_x_transition(
         self.obj.id, scheduled.transition, scheduled.after);
       i = i + 1;
     }
@@ -421,13 +421,13 @@ impl ObjectParamXChain {
 
   pub fn animate(self) -> CanvasObject {
     self.submit();
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
     self.obj
   }
 
   pub fn animate_free(self) -> CanvasObject {
     self.submit();
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
     self.obj
   }
 }
@@ -437,7 +437,7 @@ impl ObjectParamYChain {
     let i = 0;
     while i < self.transitions.len() {
       let scheduled = self.transitions.get(i).unwrap();
-      package::game::base_engine::add_y_transition(
+      runtime::canvas::canvas_object_add_y_transition(
         self.obj.id, scheduled.transition, scheduled.after);
       i = i + 1;
     }
@@ -449,13 +449,13 @@ impl ObjectParamYChain {
 
   pub fn animate(self) -> CanvasObject {
     self.submit();
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
     self.obj
   }
 
   pub fn animate_free(self) -> CanvasObject {
     self.submit();
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
     self.obj
   }
 }
@@ -465,7 +465,7 @@ impl ObjectParamWChain {
     let i = 0;
     while i < self.transitions.len() {
       let scheduled = self.transitions.get(i).unwrap();
-      package::game::base_engine::add_w_transition(
+      runtime::canvas::canvas_object_add_w_transition(
         self.obj.id, scheduled.transition, scheduled.after);
       i = i + 1;
     }
@@ -477,13 +477,13 @@ impl ObjectParamWChain {
 
   pub fn animate(self) -> CanvasObject {
     self.submit();
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
     self.obj
   }
 
   pub fn animate_free(self) -> CanvasObject {
     self.submit();
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
     self.obj
   }
 }
@@ -493,7 +493,7 @@ impl ObjectParamHChain {
     let i = 0;
     while i < self.transitions.len() {
       let scheduled = self.transitions.get(i).unwrap();
-      package::game::base_engine::add_h_transition(
+      runtime::canvas::canvas_object_add_h_transition(
         self.obj.id, scheduled.transition, scheduled.after);
       i = i + 1;
     }
@@ -505,13 +505,13 @@ impl ObjectParamHChain {
 
   pub fn animate(self) -> CanvasObject {
     self.submit();
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
     self.obj
   }
 
   pub fn animate_free(self) -> CanvasObject {
     self.submit();
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
     self.obj
   }
 }
@@ -521,7 +521,7 @@ impl ObjectParamAlphaChain {
     let i = 0;
     while i < self.transitions.len() {
       let scheduled = self.transitions.get(i).unwrap();
-      package::game::base_engine::add_alpha_transition(
+      runtime::canvas::canvas_object_add_alpha_transition(
         self.obj.id, scheduled.transition, scheduled.after);
       i = i + 1;
     }
@@ -533,13 +533,13 @@ impl ObjectParamAlphaChain {
 
   pub fn animate(self) -> CanvasObject {
     self.submit();
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
     self.obj
   }
 
   pub fn animate_free(self) -> CanvasObject {
     self.submit();
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
     self.obj
   }
 }
@@ -549,7 +549,7 @@ impl ObjectParamThetaChain {
     let i = 0;
     while i < self.transitions.len() {
       let scheduled = self.transitions.get(i).unwrap();
-      package::game::base_engine::add_theta_transition(
+      runtime::canvas::canvas_object_add_theta_transition(
         self.obj.id, scheduled.transition, scheduled.after);
       i = i + 1;
     }
@@ -561,13 +561,13 @@ impl ObjectParamThetaChain {
 
   pub fn animate(self) -> CanvasObject {
     self.submit();
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
     self.obj
   }
 
   pub fn animate_free(self) -> CanvasObject {
     self.submit();
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
     self.obj
   }
 }
@@ -769,14 +769,14 @@ impl ObjectBatchChain {
   // 周期系はその周期で揺れ、`duration` 経ったところで止まる。
   pub fn animate_for(self, duration: Duration) -> CanvasObject {
     self.stage(duration);
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Sync);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Sync);
     self.obj
   }
 
   // テキストとは無関係に走らせる版。クリックでは飛ばない。
   pub fn animate_free_for(self, duration: Duration) -> CanvasObject {
     self.stage(duration);
-    package::game::base_engine::start_transitions(CanvasObjectTransitionSyncMode::Free);
+    runtime::canvas::canvas_start_transitions(CanvasObjectTransitionSyncMode::Free);
     self.obj
   }
 
@@ -784,7 +784,7 @@ impl ObjectBatchChain {
   fn stage(self, duration: Duration) {
     match self.x {
       Some(batch) => {
-        package::game::base_engine::add_x_transition(
+        runtime::canvas::canvas_object_add_x_transition(
           self.obj.id, batch.as_transition(duration), Duration::ms(0));
         match batch.target() {
           Some(value) => { self.obj.x = value; },
@@ -795,7 +795,7 @@ impl ObjectBatchChain {
     }
     match self.y {
       Some(batch) => {
-        package::game::base_engine::add_y_transition(
+        runtime::canvas::canvas_object_add_y_transition(
           self.obj.id, batch.as_transition(duration), Duration::ms(0));
         match batch.target() {
           Some(value) => { self.obj.y = value; },
@@ -806,7 +806,7 @@ impl ObjectBatchChain {
     }
     match self.w {
       Some(batch) => {
-        package::game::base_engine::add_w_transition(
+        runtime::canvas::canvas_object_add_w_transition(
           self.obj.id, batch.as_transition(duration), Duration::ms(0));
         match batch.target() {
           Some(value) => { self.obj.w = value; },
@@ -817,7 +817,7 @@ impl ObjectBatchChain {
     }
     match self.h {
       Some(batch) => {
-        package::game::base_engine::add_h_transition(
+        runtime::canvas::canvas_object_add_h_transition(
           self.obj.id, batch.as_transition(duration), Duration::ms(0));
         match batch.target() {
           Some(value) => { self.obj.h = value; },
@@ -828,7 +828,7 @@ impl ObjectBatchChain {
     }
     match self.alpha {
       Some(batch) => {
-        package::game::base_engine::add_alpha_transition(
+        runtime::canvas::canvas_object_add_alpha_transition(
           self.obj.id, batch.as_transition(duration), Duration::ms(0));
         match batch.target() {
           Some(value) => { self.obj.alpha = value; },
@@ -839,7 +839,7 @@ impl ObjectBatchChain {
     }
     match self.theta {
       Some(batch) => {
-        package::game::base_engine::add_theta_transition(
+        runtime::canvas::canvas_object_add_theta_transition(
           self.obj.id, batch.as_transition(duration), Duration::ms(0));
         match batch.target() {
           Some(value) => { self.obj.theta = value; },

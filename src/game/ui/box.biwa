@@ -4,8 +4,6 @@ import package::option::Option::Some;
 import package::option::Option::None;
 import package::convert::Into;
 import package::game::color::Color;
-import package::game::base_engine::ui_create;
-import package::game::base_engine::ui_push_child;
 import package::game::ui::UiElement;
 import package::game::ui::UiSize;
 import package::game::ui::Background;
@@ -13,6 +11,7 @@ import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_text_properties;
 import package::game::ui::apply_id;
 import package::game::ui::UiId;
+import package::game::runtime;
 
 // 領域を区切る最も基本的な Element。子を 1 つまで持てる (無くてもよい)。
 // テキストも持てる (子と両方持つときはテキストが先に並ぶ)。
@@ -167,7 +166,7 @@ impl[S] Box[S] {
   // 木を辿って syscall を発行する。enum の `UiElement::materialize` から
   // 分岐した先である。
   pub(super) fn materialize(self) -> UiId {
-    let id = ui_create(self.into());
+    let id = runtime::ui::ui_create(self.into());
     apply_id(id, self.id);
     
     apply_layout_properties(
@@ -180,7 +179,7 @@ impl[S] Box[S] {
     match self.child {
       Some(child) => {
         let child_id = child.materialize();
-        ui_push_child(id, child_id);
+        runtime::ui::ui_push_child(id, child_id);
       },
       None => {},
     }

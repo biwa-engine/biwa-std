@@ -11,7 +11,7 @@ import package::game::ui::MessageAreaId;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 import package::game::ui::UiId;
-import package::game::base_engine::ui_create_message_area;
+import package::game::runtime;
 
 // Content API (ノベル表現) の出力先になる Element。子は持てない。
 //
@@ -38,7 +38,7 @@ impl[S] MessageArea[S] {
   // この時点で UI Element を作る (`message_area_id()` のため)。どこにも繋がらず、property もまだ無い。
   pub fn new() -> Self {
     Self {
-      ui_id = ui_create_message_area(),
+      ui_id = runtime::ui::ui_create_message_area(),
       id = None,
       width = None,
       height = None,

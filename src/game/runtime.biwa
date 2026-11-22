@@ -1,0 +1,187 @@
+pub(super) mod content;
+pub(super) mod canvas;
+pub(super) mod ui;
+pub(super) mod sound;
+
+// エンジン (基盤ランタイム) との境界。
+//
+// エンジンの API はシステムコールにあたる。呼ぶとエンジン側 (kernel land) に入る。
+//
+// - 中断する syscall (クリック待ちなど) は、完了までブロックするホスト関数の呼び出しである。
+// - 中断しない syscall (画像を出す、名前を変える) は、積んで即座に返るホスト関数の呼び出しである。
+//
+// エンジンとの ABI は可能な限りこのモジュールに隠蔽し、
+// std の他のモジュールでは抽象化された状態で扱えるようにする
+// 
+// 
+// ## 呼び出し規則
+// 
+// std の他のモジュールでは、このモジュール内で定義された関数の呼び出し時には、
+// syscallの薄いラッパそのものを呼び出していることが分かるように、
+// 
+// runtime::foo()
+// 
+// の形で呼び出す。
+// つまり、importするのはruntimeモジュール自体のみにする。
+// 
+// ## 命名,定義規則
+// 
+// - runtime から import するホスト関数: sys_foo_bar (fooはsubsystemの種類, barは具体の操作名)
+// - その呼び出しをするだけの薄いラッパ関数: 同名のsys_foo_bar, runtime::fooでprivateで定義
+// - さらにその呼び出しをしstdの型に持ち込むラッパ関数: foo_bar, runtime::fooでpub(package)で定義(mod runtimeがmod game内のprivateなので外から呼ばれることはない)
+
+// エンジンの API をホスト関数の import として宣言する。
+//
+// import の名前空間 (`biwa:engine`) は std とエンジンが合意するものであり、
+// コンパイラは関知しない。コンパイラはこの宣言をそのまま生成物の先頭に置く。
+//
+// wasm には中断の仕組みが無く、その必要も無い。
+// エンジン呼び出しは同期的なホスト関数の呼び出しで、
+// 完了までブロックするか積んで即座に返るかはエンジンの都合である。
+[[native(arch="wasm")]]
+{{
+  ;; Content SubSystem。第一引数は出力先の MessageArea の ui_id。
+  (import "biwa:engine" "sys_content_push_text" (func $sys_content_push_text (param i32 externref f32 i32 f32 i32 i32 i32 i32 i32)))
+  (import "biwa:engine" "sys_content_flush" (func $sys_content_flush (param i32)))
+  (import "biwa:engine" "sys_content_clear" (func $sys_content_clear (param i32)))
+  (import "biwa:engine" "sys_wait" (func $sys_wait))
+  
+  ;; Canvas API。第一引数は出力先の Canvas の ui_id。
+  ;; 座標・大きさ・theta は f32 (座標と大きさは canvas の範囲が -50.0..50.0 の単位)、alpha は i32。
+  (import "biwa:engine" "sys_create_object" (func $sys_create_object (param i32 externref i32 f32 f32 f32 f32 i32 f32) (result i32)))
+  (import "biwa:engine" "sys_delete_object" (func $sys_delete_object (param i32 i32)))
+  ;; 値は val_i (i32) と val_f (f32) の 2 枠。パラメータごとに使う方が決まっていて、使わない方は 0。
+  (import "biwa:engine" "sys_add_transition" (func $sys_add_transition (param i32 i32 i32 i32 f32 i32 i32)))
+  (import "biwa:engine" "sys_start_transitions" (func $sys_start_transitions (param i32)))
+  (import "biwa:engine" "sys_await_transitions" (func $sys_await_transitions))
+  (import "biwa:engine" "sys_sleep" (func $sys_sleep (param i32)))
+
+  ;; UI Element (docs/ui-api.md)。kind の番号は engine の `api/ui.ts` が正。
+  (import "biwa:engine" "sys_ui_create" (func $sys_ui_create (param i32) (result i32)))
+  (import "biwa:engine" "sys_ui_set_property" (func $sys_ui_set_property (param i32 i32 i32 i32 i32 i32 i32 i32 f32)))
+  (import "biwa:engine" "sys_ui_set_property_with_string" (func $sys_ui_set_property_with_string (param i32 i32 i32 i32 f32 externref)))
+  (import "biwa:engine" "sys_ui_push_child" (func $sys_ui_push_child (param i32 i32)))
+  ;; 関数の値は funcref で渡す。どの関数型 `(ref null $F)` も funcref の部分型なので、
+  ;; 単相化後の型名をここに書かずに済む (`docs/host-function-values.md`)。
+  (import "biwa:engine" "sys_ui_set_handler" (func $sys_ui_set_handler (param i32 i32 funcref)))
+  ;; 値 (struct) は anyref で渡す。ホストは中身を見ずに預かり、後で host export の引数として返す
+  ;; (`docs/host-function-values.md` の「値を預ける」)。
+  (import "biwa:engine" "sys_ui_set_value" (func $sys_ui_set_value (param i32 i32 anyref)))
+
+  ;; Sound SubSystem (docs/sound.md)。id は SoundObject・Bus・Effect の空間ごとにエンジンが 1 から振る。
+  ;; 時刻は ms (i32)、音量は dB (f32)。
+  (import "biwa:engine" "sys_sound_bus_create" (func $sys_sound_bus_create (result i32)))
+  (import "biwa:engine" "sys_sound_bus_add_effect" (func $sys_sound_bus_add_effect (param i32 i32 i32 i32) (result i32)))
+  (import "biwa:engine" "sys_sound_bus_attach" (func $sys_sound_bus_attach (param i32 i32)))
+  (import "biwa:engine" "sys_sound_output_attach" (func $sys_sound_output_attach (param i32)))
+  (import "biwa:engine" "sys_sound_bus_add_stop_all" (func $sys_sound_bus_add_stop_all (param i32 i32)))
+  (import "biwa:engine" "sys_sound_bus_delete" (func $sys_sound_bus_delete (param i32 i32)))
+  (import "biwa:engine" "sys_sound_bus_add_transition" (func $sys_sound_bus_add_transition (param i32 i32 i32 f32 i32 i32)))
+  (import "biwa:engine" "sys_sound_bus_set_param" (func $sys_sound_bus_set_param (param i32 i32 f32)))
+  (import "biwa:engine" "sys_sound_effect_add_transition" (func $sys_sound_effect_add_transition (param i32 i32 i32 f32 i32 i32)))
+  (import "biwa:engine" "sys_sound_effect_set_param" (func $sys_sound_effect_set_param (param i32 i32 f32)))
+  (import "biwa:engine" "sys_sound_create" (func $sys_sound_create (param externref i32 f32 f32 f32 i32 i32 i32) (result i32)))
+  (import "biwa:engine" "sys_sound_add_start" (func $sys_sound_add_start (param i32 i32 i32 i32)))
+  (import "biwa:engine" "sys_sound_add_stop" (func $sys_sound_add_stop (param i32 i32)))
+  (import "biwa:engine" "sys_sound_add_transition" (func $sys_sound_add_transition (param i32 i32 i32 f32 i32 i32)))
+  (import "biwa:engine" "sys_sound_preload" (func $sys_sound_preload (param externref)))
+  
+  ;; ホスト側データの操作
+  (import "biwa:engine" "sys_string_concat" (func $sys_string_concat (param externref externref) (result externref)))
+  (import "biwa:engine" "sys_string_eq" (func $sys_string_eq (param externref externref) (result i32)))
+  (import "biwa:engine" "sys_int_to_string" (func $sys_int_to_string (param i32) (result externref)))
+  (import "biwa:engine" "sys_float_to_string" (func $sys_float_to_string (param f32) (result externref)))
+  (import "biwa:engine" "sys_vec_new" (func $sys_vec_new (result externref)))
+  (import "biwa:engine" "sys_vec_of" (func $sys_vec_of (param anyref) (result externref)))
+  (import "biwa:engine" "sys_vec_push" (func $sys_vec_push (param externref anyref)))
+  (import "biwa:engine" "sys_vec_len" (func $sys_vec_len (param externref) (result i32)))
+  (import "biwa:engine" "sys_vec_get" (func $sys_vec_get (param externref i32) (result anyref)))
+  (import "biwa:engine" "sys_map_insert" (func $sys_map_insert (param externref anyref anyref)))
+  (import "biwa:engine" "sys_map_get" (func $sys_map_get (param externref anyref) (result anyref)))
+}}
+
+import package::option::Option;
+import package::option::Option::Some;
+import package::option::Option::None;
+import package::convert::Into;
+import package::string::String;
+import package::game::color::Alpha;
+import package::game::canvas::Cx;
+import package::game::canvas::Cy;
+import package::game::canvas::Cw;
+import package::game::canvas::Ch;
+import package::game::canvas::Theta;
+import package::game::canvas::CanvasObjectParam;
+import package::game::canvas::CanvasObjectTransition;
+import package::game::canvas::CanvasObjectXTransition;
+import package::game::canvas::CanvasObjectYTransition;
+import package::game::canvas::CanvasObjectWTransition;
+import package::game::canvas::CanvasObjectHTransition;
+import package::game::canvas::CanvasObjectAlphaTransition;
+import package::game::canvas::CanvasObjectThetaTransition;
+import package::game::canvas::CanvasObjectTransitionContinuity;
+import package::game::canvas::CanvasObjectTransitionSyncMode;
+import package::game::color::Color;
+import package::game::font::TextWeight;
+import package::game::ui::Size;
+import package::game::ui::UiId;
+import package::game::ui::UiSize;
+import package::game::ui::UiElement;
+import package::game::ui::UiProperty;
+import package::game::ui::UiEventHandler;
+import package::game::ui::WindowHandle;
+import package::game::ui::CanvasHandle;
+import package::time::Duration;
+
+// ---- Central Synchronized Tick ----
+
+pub(super) fn wait() {
+  content::sys_wait();
+}
+
+// エンジン時計の上で指定時間シーンを止める (ポーズ中は進まない)。
+[[native(arch="wasm")]]
+pub(super) fn sleep(ms: Uint) {{
+  local.get 0
+  call $sys_sleep
+}}
+
+
+// --- 値の変換 --------------------------------------------------------------
+//
+// エンジン呼び出しではなく、wasm の値に対する操作である。
+// `String` の実体はホスト側にしか無いので、数値から作るのもホストに頼む。
+
+[[native(arch="wasm")]]
+pub(package) fn int_to_string(val: Int) -> String {{
+  local.get 0
+  call $sys_int_to_string
+}}
+
+// 整数を浮動小数にする。値の変換で、エンジンは呼ばない。
+[[native(arch="wasm")]]
+pub(package) fn int_to_float(val: Int) -> Float {{
+  local.get 0
+  f32.convert_i32_s
+}}
+
+// 非負の整数を浮動小数にする。
+[[native(arch="wasm")]]
+pub(package) fn uint_to_float(val: Uint) -> Float {{
+  local.get 0
+  f32.convert_i32_u
+}}
+
+// 文字列が等しいか (中身で比べる)。文字列の実体はホストにあるので、ホストに頼む。
+[[native(arch="wasm")]]
+pub(package) fn string_eq(a: String, b: String) -> Bool {{
+  local.get 0
+  local.get 1
+  call $sys_string_eq
+}}
+
+[[native(arch="wasm")]]
+pub(package) fn float_to_string(val: Float) -> String {{
+  local.get 0
+  call $sys_float_to_string
+}}

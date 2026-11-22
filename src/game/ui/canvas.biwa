@@ -11,7 +11,7 @@ import package::game::ui::CanvasId;
 import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 import package::game::ui::UiId;
-import package::game::base_engine::ui_create_canvas;
+import package::game::runtime;
 
 // Canvas API の出力先になる Element。子は持てない。
 //
@@ -42,7 +42,7 @@ impl[S] Canvas[S] {
   // この時点で UI Element を作る (`canvas_id()` のため)。どこにも繋がらず、property もまだ無い。
   pub fn new() -> Self {
     Self {
-      ui_id = ui_create_canvas(),
+      ui_id = runtime::ui::ui_create_canvas(),
       id = None,
       width = None,
       height = None,

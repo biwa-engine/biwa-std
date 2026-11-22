@@ -12,7 +12,7 @@ import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 import package::game::ui::push_children;
 import package::game::ui::UiId;
-import package::game::base_engine::ui_create;
+import package::game::runtime;
 
 // 子を垂直に並べる Layout Element。
 pub struct Vertical[S] {
@@ -124,7 +124,7 @@ impl[S] Vertical[S] {
 
   // 木を辿って syscall を発行する。
   pub(super) fn materialize(self) -> UiId {
-    let id = ui_create(self.into());
+    let id = runtime::ui::ui_create(self.into());
     apply_id(id, self.id);
     apply_layout_properties(
       id, self.width, self.height,

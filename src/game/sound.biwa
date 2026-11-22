@@ -26,8 +26,6 @@ import package::game::base_engine::sound_bus_add_transition;
 import package::game::base_engine::sound_bus_set_param;
 import package::game::base_engine::sound_effect_add_transition;
 import package::game::base_engine::sound_effect_set_param;
-import package::game::base_engine::sound_create;
-import package::game::base_engine::sound_add_start;
 import package::game::base_engine::sound_add_stop;
 import package::game::base_engine::sound_add_transition;
 import package::game::base_engine::sound_preload;
@@ -35,6 +33,7 @@ import package::game::base_engine::sound_fire;
 import package::game::base_engine::sound_await;
 import package::game::base_engine::uint_to_float;
 import package::game::base_engine::string_eq;
+import package::game::runtime;
 
 // 遷移の kind の番号 (canvas と同じ。engine の `api/transition.ts`)。
 fn linear_kind() -> Uint { 1 }
@@ -84,12 +83,19 @@ impl Position {
   pub fn left() -> Self { Self { x = -1.0, y = 0.0 } }
   pub fn right() -> Self { Self { x = 1.0, y = 0.0 } }
   pub fn at(x: Float, y: Float) -> Self { Self { x = x, y = y } }
+  pub(super) fn x() -> Float { self.x }
+  pub(super) fn y() -> Float { self.y }
 }
 
 // ループの区間。2 回目以降は `start` から鳴る。`end` が None ならファイルの終わり。
-pub struct LoopRange {
+pub struct SoundLoopRange {
   start: Duration,
   end: Option[Duration],
+}
+
+impl SoundLoopRange {
+  pub(super) fn start(self) -> Duration { self.start }
+  pub(super) fn end(self) -> Option[Duration] { self.end }
 }
 
 // --- Sound と SoundObject -----------------------------------------------------
@@ -100,7 +106,7 @@ pub struct Sound {
   path: String,
   volume: Volume,
   position: Position,
-  loop_range: LoopRange,
+  loop_range: SoundLoopRange,
 }
 
 impl Sound {
@@ -109,7 +115,7 @@ impl Sound {
       path = path,
       volume = Volume::db(0.0),
       position = Position::center(),
-      loop_range = LoopRange { start = Duration::ms(0), end = None },
+      loop_range = SoundLoopRange { start = Duration::ms(0), end = None },
     }
   }
 
@@ -125,7 +131,7 @@ impl Sound {
 
   // ループの区間 (BGM の前奏を飛ばして繰り返すときなど)。
   pub fn with_loop(self, start: Duration, end: Option[Duration]) -> Self {
-    self.loop_range = LoopRange { start = start, end = end };
+    self.loop_range = SoundLoopRange { start = start, end = end };
     self
   }
 
@@ -138,8 +144,8 @@ impl Sound {
     self.path
   }
 
-  // `bus` で `repeat` 回鳴らす (0 は無限)。
-  pub fn play_on(self, bus: Bus, repeat: Uint) -> SoundObject {
+  // `bus` で `repeat` 回鳴らす。
+  pub fn play_on(self, bus: Bus, repeat: SoundRepetition) -> SoundObject {
     let object = self.create_on(bus, FALSE, self.volume);
     object.queue_start(repeat);
     sound_fire(0);
@@ -147,7 +153,7 @@ impl Sound {
   }
 
   // `bus` で、無音から `d` かけて大きくしながら鳴らす。
-  pub fn fade_in_on(self, bus: Bus, repeat: Uint, d: Duration) -> SoundObject {
+  pub fn fade_in_on(self, bus: Bus, repeat: SoundRepetition, d: Duration) -> SoundObject {
     let object = self.create_on(bus, FALSE, Volume::silent());
     object.queue_start(repeat);
     object.queue_volume(self.volume, d);
@@ -157,14 +163,28 @@ impl Sound {
 
   // SoundObject を作る (まだ鳴らない)。`normalize` はラウドネス正規化 (段 2) の指定。
   pub(package) fn create_on(self, bus: Bus, normalize: Bool, initial: Volume) -> SoundObject {
-    let loop_end = match self.loop_range.end {
-      Some(end) => end.as_ms(),
-      None => 0,
-    };
-    let id = sound_create(
-      self.path, bus.id(), initial.as_db(), self.position.x, self.position.y,
-      self.loop_range.start.as_ms(), loop_end, flag(normalize));
+    let id = runtime::sound::sound_object_create(
+      self.path, bus.id(), initial, self.position, self.loop_range, normalize);
     SoundObject { id = id, volume = self.volume }
+  }
+}
+
+pub enum SoundRepetition {
+  Infinite,
+  Count(Uint),
+}
+
+pub(super) struct SoundObjectId {
+  value: Uint,
+}
+
+impl SoundObjectId {
+  pub(super) fn new(value: Uint) -> Self {
+    Self { value = value }
+  }
+  
+  pub(super) fn as_raw(self) -> Uint {
+    self.value
   }
 }
 
@@ -172,7 +192,7 @@ impl Sound {
 //
 // `volume` は最後に発火した目標の音量 (今の音量はエンジンからは取れない)。
 pub struct SoundObject {
-  id: Uint,
+  id: SoundObjectId,
   volume: Volume,
 }
 
@@ -208,8 +228,8 @@ impl SoundObject {
 
   // --- 積むだけ (発火は呼んだ側) ---
 
-  pub(package) fn queue_start(self, repeat: Uint) {
-    sound_add_start(self.id, 0, 0, repeat);
+  pub(package) fn queue_start(self, repeat: SoundRepetition) {
+    runtime::sound::sound_object_add_start(self.id, Duration::ms(0), Duration::ms(0), repeat);
   }
 
   pub(package) fn queue_volume(self, v: Volume, d: Duration) {
@@ -232,10 +252,35 @@ impl SoundObject {
 // 根 (master) だけは `attach_to_output()` で出力に繋ぐ。根は 1 本だけ。
 //
 // third party のライブラリも、std のバスの下に自由にバスを足してよい。
+
+pub(super) struct BusId {
+  value: Uint,
+}
+
+impl BusId {
+  pub(super) fn new(value: Uint) -> Self {
+    Self { value = value }
+  }
+  
+  pub(super) fn as_raw(self) -> Uint {
+    self.value
+  }
+}
+
 pub struct Bus {
-  id: Uint,
+  id: BusId,
   // 最後に設定した音量 (stop_all のフェードの後に戻す値)。
   volume: Volume,
+}
+
+pub enum SoundBusEffect {
+  PassFilter {
+    min: Option[Hz],
+    max: Option[Hz],
+  },
+}
+
+pub(super) enum SoundBusEffectParam {
 }
 
 impl Bus {
@@ -243,7 +288,7 @@ impl Bus {
     Self { id = sound_bus_create(), volume = Volume::db(0.0) }
   }
 
-  pub(package) fn id(self) -> Uint {
+  pub(package) fn id(self) -> BusId {
     self.id
   }
 
