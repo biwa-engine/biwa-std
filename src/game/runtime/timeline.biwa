@@ -27,26 +27,26 @@ import package::game::timeline::TransitionContinuity;
 [[native(arch="wasm")]]
 fn sys_timeline_fire(sync: Uint) {{
   local.get 0
-  call $sys_start_transitions
+  call $sys_timeline_fire
 }}
 
 // sync で発火した演出 (有限の遷移・有限の音) がすべて終わるまでシーンを止める。
 [[native(arch="wasm")]]
 fn sys_timeline_await_synced() {{
-  call $sys_await_transitions
+  call $sys_timeline_await_synced
 }}
 
 // エンジン時計の上で `ms` ミリ秒シーンを止める (ポーズ中は進まない)。
 [[native(arch="wasm")]]
 fn sys_timeline_sleep(ms: Uint) {{
   local.get 0
-  call $sys_sleep
+  call $sys_timeline_sleep
 }}
 
 // クリックが来るまで待つ。エンジンはクリックが来るまで scene を再開しない。
 [[native(arch="wasm")]]
 fn sys_timeline_wait_click() {{
-  call $sys_wait
+  call $sys_timeline_wait_click
 }}
 
 // --- wrapper with std types and its abstraction ---

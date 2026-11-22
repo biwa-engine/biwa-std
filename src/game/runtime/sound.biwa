@@ -154,7 +154,7 @@ fn sys_sound_object_create(
   local.get 5
   local.get 6
   local.get 7
-  call $sys_sound_create
+  call $sys_sound_object_create
 }}
 
 // 開始を積む。offset_ms は再生を始める位置、repeat は 0 = 無限、n = n 回。
@@ -164,14 +164,14 @@ fn sys_sound_object_add_start(id: Uint, after: Uint, offset_ms: Uint, repeat: Ui
   local.get 1
   local.get 2
   local.get 3
-  call $sys_sound_add_start
+  call $sys_sound_object_add_start
 }}
 
 [[native(arch="wasm")]]
 fn sys_sound_object_add_stop(id: Uint, after: Uint) {{
   local.get 0
   local.get 1
-  call $sys_sound_add_stop
+  call $sys_sound_object_add_stop
 }}
 
 // SoundObject のパラメータに遷移を積む。param は `SoundObjectParam`。
@@ -183,7 +183,7 @@ fn sys_sound_object_add_transition(id: Uint, param: Uint, kind: Uint, value: Flo
   local.get 3
   local.get 4
   local.get 5
-  call $sys_sound_add_transition
+  call $sys_sound_object_add_transition
 }}
 
 // 音のファイルの読み込みを先に始める。

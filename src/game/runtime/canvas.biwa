@@ -64,7 +64,7 @@ fn sys_canvas_object_create(
   local.get 6
   local.get 7
   local.get 8
-  call $sys_create_object
+  call $sys_canvas_object_create
 }}
 
 pub(package) fn canvas_object_create(
@@ -84,7 +84,7 @@ pub(package) fn canvas_object_create(
 fn sys_canvas_object_delete(id: Uint, after: Uint) {{
   local.get 0
   local.get 1
-  call $sys_delete_object
+  call $sys_canvas_object_delete
 }}
 
 pub(package) fn canvas_object_delete(id: Uint, after: Duration) {
@@ -111,7 +111,7 @@ fn sys_canvas_object_add_transition(
   local.get 4
   local.get 5
   local.get 6
-  call $sys_add_transition
+  call $sys_canvas_object_add_transition
 }}
 
 impl CanvasObjectParam {

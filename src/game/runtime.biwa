@@ -45,17 +45,19 @@ pub(super) mod timeline;
   (import "biwa:engine" "sys_content_push_text" (func $sys_content_push_text (param i32 externref f32 i32 f32 i32 i32 i32 i32 i32)))
   (import "biwa:engine" "sys_content_flush" (func $sys_content_flush (param i32)))
   (import "biwa:engine" "sys_content_clear" (func $sys_content_clear (param i32)))
-  (import "biwa:engine" "sys_wait" (func $sys_wait))
   
+  ;; Timeline。演出 (canvas と音) の発火と待ち、エンジン時計の上の sleep、クリック待ち。
+  (import "biwa:engine" "sys_timeline_fire" (func $sys_timeline_fire (param i32)))
+  (import "biwa:engine" "sys_timeline_await_synced" (func $sys_timeline_await_synced))
+  (import "biwa:engine" "sys_timeline_sleep" (func $sys_timeline_sleep (param i32)))
+  (import "biwa:engine" "sys_timeline_wait_click" (func $sys_timeline_wait_click))
+
   ;; Canvas API。第一引数は出力先の Canvas の ui_id。
   ;; 座標・大きさ・theta は f32 (座標と大きさは canvas の範囲が -50.0..50.0 の単位)、alpha は i32。
-  (import "biwa:engine" "sys_create_object" (func $sys_create_object (param i32 externref i32 f32 f32 f32 f32 i32 f32) (result i32)))
-  (import "biwa:engine" "sys_delete_object" (func $sys_delete_object (param i32 i32)))
+  (import "biwa:engine" "sys_canvas_object_create" (func $sys_canvas_object_create (param i32 externref i32 f32 f32 f32 f32 i32 f32) (result i32)))
+  (import "biwa:engine" "sys_canvas_object_delete" (func $sys_canvas_object_delete (param i32 i32)))
   ;; 値は val_i (i32) と val_f (f32) の 2 枠。パラメータごとに使う方が決まっていて、使わない方は 0。
-  (import "biwa:engine" "sys_add_transition" (func $sys_add_transition (param i32 i32 i32 i32 f32 i32 i32)))
-  (import "biwa:engine" "sys_start_transitions" (func $sys_start_transitions (param i32)))
-  (import "biwa:engine" "sys_await_transitions" (func $sys_await_transitions))
-  (import "biwa:engine" "sys_sleep" (func $sys_sleep (param i32)))
+  (import "biwa:engine" "sys_canvas_object_add_transition" (func $sys_canvas_object_add_transition (param i32 i32 i32 i32 f32 i32 i32)))
 
   ;; UI Element (docs/ui-api.md)。kind の番号は engine の `api/ui.ts` が正。
   (import "biwa:engine" "sys_ui_create" (func $sys_ui_create (param i32) (result i32)))
@@ -82,10 +84,10 @@ pub(super) mod timeline;
   (import "biwa:engine" "sys_sound_effect_create" (func $sys_sound_effect_create (param i32 i32 i32) (result i32)))
   (import "biwa:engine" "sys_sound_effect_add_transition" (func $sys_sound_effect_add_transition (param i32 i32 i32 f32 i32 i32)))
   (import "biwa:engine" "sys_sound_effect_set_param" (func $sys_sound_effect_set_param (param i32 i32 f32)))
-  (import "biwa:engine" "sys_sound_create" (func $sys_sound_create (param externref i32 f32 f32 f32 i32 i32 i32) (result i32)))
-  (import "biwa:engine" "sys_sound_add_start" (func $sys_sound_add_start (param i32 i32 i32 i32)))
-  (import "biwa:engine" "sys_sound_add_stop" (func $sys_sound_add_stop (param i32 i32)))
-  (import "biwa:engine" "sys_sound_add_transition" (func $sys_sound_add_transition (param i32 i32 i32 f32 i32 i32)))
+  (import "biwa:engine" "sys_sound_object_create" (func $sys_sound_object_create (param externref i32 f32 f32 f32 i32 i32 i32) (result i32)))
+  (import "biwa:engine" "sys_sound_object_add_start" (func $sys_sound_object_add_start (param i32 i32 i32 i32)))
+  (import "biwa:engine" "sys_sound_object_add_stop" (func $sys_sound_object_add_stop (param i32 i32)))
+  (import "biwa:engine" "sys_sound_object_add_transition" (func $sys_sound_object_add_transition (param i32 i32 i32 f32 i32 i32)))
   (import "biwa:engine" "sys_sound_preload" (func $sys_sound_preload (param externref)))
   
   ;; ホスト側データの操作
