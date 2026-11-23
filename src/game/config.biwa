@@ -8,6 +8,10 @@
 import package::game::color::Color;
 import package::game::ui::Size;
 import package::game::content::ContentSpeed;
+import package::option::Option;
+import package::option::Option::Some;
+import package::game::sound::VolumeConfig;
+import package::game::sound::Ducking;
 
 pub struct Config {
   // 開発者によって設定されるconfig
@@ -33,6 +37,12 @@ pub struct DeveloperConfig {
 
   // 開発者によって設定されるデフォルトの文字色
   default_text_color: Color,
+
+  // 開発者によって設定されるデフォルトの音量 (バスごと)。プレイヤーの設定の初期値になる。
+  default_volumes: VolumeConfig,
+
+  // ボイスが鳴る間 BGM を下げるか (None なら下げない)。
+  bgm_ducking: Option[Ducking],
 }
 
 pub(super) struct UserConfig {
@@ -43,6 +53,12 @@ pub(super) struct UserConfig {
   // ユーザによって動的に設定された文字サイズ
   // デフォルト値は DeveloperConfig.default_content_size 
   content_size: Size,
+
+  // ユーザによって設定された音量。デフォルト値は DeveloperConfig.default_volumes
+  volumes: VolumeConfig,
+
+  // `>>` でボイスを止めずに続けるか。
+  voice_continues: Bool,
 }
 
 pub enum WindowMode {
@@ -71,6 +87,8 @@ impl Config {
       user = UserConfig {
         content_speed = dev.default_content_speed,
         content_size = dev.default_content_size,
+        volumes = dev.default_volumes,
+        voice_continues = FALSE,
       },
     }
   }
@@ -87,6 +105,8 @@ impl DeveloperConfig {
       default_content_speed = ContentSpeed::text_per_sec(30.0),
       default_content_size = Size::Vh(2.0),
       default_text_color = Color::white(),
+      default_volumes = VolumeConfig::default(),
+      bgm_ducking = Some(Ducking::default()),
     }
   }
 
@@ -101,7 +121,25 @@ impl DeveloperConfig {
       default_content_speed = default_content_speed,
       default_content_size = default_content_size,
       default_text_color = default_text_color,
+      default_volumes = VolumeConfig::default(),
+      bgm_ducking = Some(Ducking::default()),
     }
+  }
+
+  pub(package) fn bgm_ducking(self) -> Option[Ducking] {
+    self.bgm_ducking
+  }
+
+  // デフォルトの音量を変える。
+  pub fn with_volumes(self, v: VolumeConfig) -> Self {
+    self.default_volumes = v;
+    self
+  }
+
+  // ボイスが鳴る間の BGM の下げ方を変える (None なら下げない)。
+  pub fn with_bgm_ducking(self, d: Option[Ducking]) -> Self {
+    self.bgm_ducking = d;
+    self
   }
 }
 
@@ -112,5 +150,21 @@ impl UserConfig {
 
   pub(super) fn content_size(self) -> Size {
     self.content_size
+  }
+
+  pub(package) fn volumes(self) -> VolumeConfig {
+    self.volumes
+  }
+
+  pub(package) fn set_volumes(self, v: VolumeConfig) {
+    self.volumes = v;
+  }
+
+  pub(package) fn voice_continues(self) -> Bool {
+    self.voice_continues
+  }
+
+  pub(package) fn set_voice_continues(self, value: Bool) {
+    self.voice_continues = value;
   }
 }

@@ -11,9 +11,7 @@ import package::game::ui::apply_background;
 import package::game::ui::apply_id;
 import package::game::ui::UiId;
 import package::game::ui::UiProperty;
-import package::game::base_engine::ui_create_page;
-import package::game::base_engine::ui_set_property;
-import package::game::base_engine::ui_push_child;
+import package::game::runtime;
 
 // ページ。Window の子として、page_id で区別され、Link で遷移できる。
 // `Page` は `UiElement` の variant では
@@ -62,11 +60,11 @@ impl[S] Page[S] {
 
   // 木を辿って syscall を発行し、`window_id` の子として積む。
   pub(super) fn materialize_into(self, window_id: UiId) {
-    let id = ui_create_page();
+    let id = runtime::ui::ui_create_page();
     apply_id(id, self.id);
-    ui_set_property(id, UiProperty::PageId(self.page_id));
+    runtime::ui::ui_set_property(id, UiProperty::PageId(self.page_id));
     apply_background(id, self.background);
     push_children(id, self.children);
-    ui_push_child(window_id, id);
+    runtime::ui::ui_push_child(window_id, id);
   }
 }

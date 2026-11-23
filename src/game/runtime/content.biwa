@@ -1,0 +1,99 @@
+// ---- Content SubSystem ----
+//
+// Content API (`std::game::content`) の下にある低レベルの API である。
+// **設定はすべて std 側で解決済み**で、ここに来るのは絶対値だけである
+// (`docs/content-api.md` の決めたこと 3)。エンジンは設定を持たない。
+
+// --- syscall thin shim ---
+
+// Content を 1 つ積む。まだ描画しない。
+//
+// - `ui_id` は出力先の MessageArea (UI Element)。Content API の syscall はすべて
+//   第一引数で出力先を指定する (`docs/ui-api-impl-status.md` §14)
+// - `speed` は秒間何文字出るか
+// - `size_unit` は 0 = vw, 1 = vh。`size_value` はその単位に対する値
+//   (`Size` は enum なので、wasm の引数に載せるために 2 つに割っている)
+// - `weight` は 100 〜 900
+// - 色は `r` / `g` / `b` / `a` の 4 つに割って渡す。
+//   1 語に詰めないのは、biwa にビット演算が無く、
+//   算術で詰めると `a` が i32 の符号を跨ぐためである
+[[native(arch="wasm")]]
+fn sys_content_push_text(
+  ui_id: Uint,
+  text: String,
+  speed: Float,
+  size_unit: Uint,
+  size_value: Float,
+  weight: Uint,
+  r: Uint,
+  g: Uint,
+  b: Uint,
+  a: Uint,
+) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  local.get 4
+  local.get 5
+  local.get 6
+  local.get 7
+  local.get 8
+  local.get 9
+  call $sys_content_push_text
+}}
+
+// 積まれた content をまとめて出し始める。
+[[native(arch="wasm")]]
+fn sys_content_flush(ui_id: Uint) {{
+  local.get 0
+  call $sys_content_flush
+}}
+
+// 枠を空にする。
+//
+// **エンジンは自分の判断でクリアしない。** いつ消えるかを決めるのは std である
+// (決めたこと 2)。待っても消したくない API を将来足すときに、
+// 変更がエンジンまで波及しないようにするための切り分けである。
+[[native(arch="wasm")]]
+fn sys_content_clear(ui_id: Uint) {{
+  local.get 0
+  call $sys_content_clear
+}}
+
+// --- wrapper with std types and its abstraction ---
+
+import package::string::String;
+import package::game::color::Color;
+import package::game::font::TextWeight;
+import package::game::ui::Size;
+import package::game::ui::UiId;
+
+// テキストを 1 つ積む。`message_area` は出力先の MessageArea。
+//
+// 引数はすべて解決済みの絶対値である (設定の解決は `std::game::content` の仕事)。
+// `Size` は (単位, 値) に、色は 4 成分に割って渡す (`sys_content_push_text` を参照)。
+pub(package) fn content_push_text(
+  message_area: UiId, text: String, speed: Float, size: Size, weight: TextWeight, color: Color,
+) {
+  match size {
+    Size::Vw(v) => {
+      sys_content_push_text(
+        message_area.as_raw(), text, speed, 0, v, weight.weight(),
+        color.r(), color.g(), color.b(), color.a());
+    }
+    Size::Vh(v) => {
+      sys_content_push_text(
+        message_area.as_raw(), text, speed, 1, v, weight.weight(),
+        color.r(), color.g(), color.b(), color.a());
+    }
+  }
+}
+
+pub(package) fn content_flush(message_area: UiId) {
+  sys_content_flush(message_area.as_raw());
+}
+
+pub(package) fn content_clear(message_area: UiId) {
+  sys_content_clear(message_area.as_raw());
+}

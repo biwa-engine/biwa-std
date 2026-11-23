@@ -1,0 +1,225 @@
+// ---- UI SubSystem ----
+//
+// `docs/ui-api.md` の Syscall 節をそのまま実装する。
+// Element kind / property kind の番号はエンジンとの取り決めで、
+// 一覧は engine の `src/engine/api/ui.ts` にある。
+//
+// create と set_property* を済ませてから push_child でアトミックに
+// 出現させる設計であり、この3段を隠すのは `game/ui.biwa` の仕事である。
+
+import package::string::String;
+import package::game::color::Color;
+import package::game::ui::UiId;
+import package::game::ui::UiSize;
+import package::game::ui::UiElement;
+import package::game::ui::UiProperty;
+import package::game::ui::UiEventHandler;
+import package::game::ui::WindowHandle;
+
+
+// UI Element を作り、その id を返す。
+//
+// `kind` は Element の種類 (Window / Page / Box / Link / Horizontal / ...)。
+// 積んで直ちに返る syscall なので、この呼び出しは待たない。
+[[native(arch="wasm")]]
+fn sys_ui_create(kind: Uint) -> Uint {{
+  local.get 0
+  call $sys_ui_create
+}}
+
+// Element の種類ごとの番号 (`ElementKind`)。
+pub(package) fn ui_create_window() -> UiId {
+  UiId::new(sys_ui_create(0))
+}
+
+pub(package) fn ui_create_page() -> UiId {
+  UiId::new(sys_ui_create(1))
+}
+
+pub(package) fn ui_create_scene_page() -> UiId {
+  UiId::new(sys_ui_create(11))
+}
+
+// Canvas / MessageArea は、ScenePage に ID を渡すために `new()` の時点で作る
+// (`Canvas::canvas_id()` / `MessageArea::message_area_id()`)。
+pub(package) fn ui_create_canvas() -> UiId {
+  UiId::new(sys_ui_create(8))
+}
+
+pub(package) fn ui_create_message_area() -> UiId {
+  UiId::new(sys_ui_create(9))
+}
+
+// `ui` の種類の UI Element を作る。中身 (property・子) は見ない。
+//
+// Canvas / MessageArea は `new()` の時点で作ってあるので (`ui_create_canvas` /
+// `ui_create_message_area`)、それらの `materialize` はこれを呼ばない。
+pub(package) fn ui_create[S](ui: UiElement[S]) -> UiId {
+  match ui {
+    UiElement::Box(_) => UiId::new(sys_ui_create(2)),
+    UiElement::Link(_) => UiId::new(sys_ui_create(3)),
+    UiElement::Horizontal(_) => UiId::new(sys_ui_create(4)),
+    UiElement::Vertical(_) => UiId::new(sys_ui_create(5)),
+    UiElement::HorizontalGrid(_) => UiId::new(sys_ui_create(6)),
+    UiElement::Image(_) => UiId::new(sys_ui_create(7)),
+    UiElement::Canvas(_) => ui_create_canvas(),
+    UiElement::MessageArea(_) => ui_create_message_area(),
+    UiElement::Layers(_) => UiId::new(sys_ui_create(10)),
+    UiElement::SceneStartButton(_) => UiId::new(sys_ui_create(12)),
+  }
+}
+
+// 数値の property を設定する。
+//
+// `val_u1`..`val_u4` / `val_i1`..`val_i2` / `val_f` のどれを使うかは
+// property kind ごとに決まっている (例: width は val_u1 が単位、val_f が値)。
+// 使わない枠は 0 で埋める。immediate の 0 は費用がほぼ無いため、
+// property の組み合わせごとに syscall を分けるより、この形のほうが安い。
+[[native(arch="wasm")]]
+fn sys_ui_set_property(
+  ui_id: Uint, kind: Uint,
+  val_u1: Uint, val_u2: Uint, val_u3: Uint, val_u4: Uint,
+  val_i1: Int, val_i2: Int,
+  val_f: Float,
+) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  local.get 4
+  local.get 5
+  local.get 6
+  local.get 7
+  local.get 8
+  call $sys_ui_set_property
+}}
+
+// 文字列を伴う property を設定する (例: Page の page_id, Link の on_click_link)。
+[[native(arch="wasm")]]
+fn sys_ui_set_property_with_string(
+  ui_id: Uint, kind: Uint,
+  val_u: Uint, val_i: Int, val_f: Float,
+  val_s: String,
+) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  local.get 4
+  local.get 5
+  call $sys_ui_set_property_with_string
+}}
+
+// 子 Element を親に積む。
+//
+// 親が子を複数持てるなら末尾に追加、1つのみ持てるなら既存を置き換え、
+// 持てないなら子はツリーから削除される (`docs/ui-api.md` の Syscall 節)。
+[[native(arch="wasm")]]
+fn sys_ui_push_child(parent: Uint, child: Uint) {{
+  local.get 0
+  local.get 1
+  call $sys_ui_push_child
+}}
+
+pub(package) fn ui_push_child(parent: UiId, child: UiId) {
+  sys_ui_push_child(parent.as_raw(), child.as_raw());
+}
+
+// Element にハンドラ (ホストが後で呼ぶ関数) を設定する。
+//
+// `kind` はハンドラの種類で、番号は engine の `api/ui.ts` (`HandlerKind`) が正。
+// ホストは kind ごとに決まった形 (引数と戻り値) で `f` を呼ぶので、
+// `A` / `R` がその形に合っていることは、これを呼ぶ std の型付きの API が保証する。
+// ホストは引数・戻り値の中身を見ない (`docs/host-function-values.md`)。
+//
+// 積んで直ちに返る syscall である。同じ Element・同じ kind に設定し直すと置き換わる。
+// ハンドラは Element が消えるときに手放される。
+//
+// 今は引数 1 つの関数だけを扱う (要るものがそれだけなので)。
+// 他の個数が要れば、個数ごとに native を足す (wasm の import は同じでよい)。
+[[native(arch="wasm")]]
+fn sys_ui_set_handler[A, R](ui_id: Uint, kind: Uint, f: fn(A) -> R) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  call $sys_ui_set_handler
+}}
+
+// `v` は struct (WasmGC の参照型) に限る。どの struct の参照も anyref の部分型なので、
+// 型名をここに書かずに済む (関数の funcref と同じ)。
+[[native(arch="wasm")]]
+fn sys_ui_set_value[T](ui_id: Uint, kind: Uint, v: T) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  call $sys_ui_set_value
+}}
+
+// 大きさの property。val_u1 が単位 (0 = vw, 1 = vh, 2 = percent)、val_f が値。
+fn ui_set_size_property(ui: UiId, kind: Uint, size: UiSize) {
+  match size {
+    UiSize::Vw(v) => { sys_ui_set_property(ui.as_raw(), kind, 0, 0, 0, 0, 0, 0, v); }
+    UiSize::Vh(v) => { sys_ui_set_property(ui.as_raw(), kind, 1, 0, 0, 0, 0, 0, v); }
+    UiSize::Percent(v) => { sys_ui_set_property(ui.as_raw(), kind, 2, 0, 0, 0, 0, 0, v); }
+  }
+}
+
+// 色の property。val_u1..val_u4 が r / g / b / a。
+fn ui_set_color_property(ui: UiId, kind: Uint, c: Color) {
+  sys_ui_set_property(ui.as_raw(), kind, c.r(), c.g(), c.b(), c.a(), 0, 0, 0.0);
+}
+
+// 整数 1 つの property (ui_id など)。val_u1 に積む。
+fn ui_set_uint_property(ui: UiId, kind: Uint, value: Uint) {
+  sys_ui_set_property(ui.as_raw(), kind, value, 0, 0, 0, 0, 0, 0.0);
+}
+
+// 文字列の property。数値の枠は使わない。
+fn ui_set_string_property(ui: UiId, kind: Uint, value: String) {
+  sys_ui_set_property_with_string(ui.as_raw(), kind, 0, 0, 0.0, value);
+}
+
+// property を 1 つ設定する。番号 (`PropertyKind`) と値の詰め方はここにしか書かない。
+pub(package) fn ui_set_property(ui: UiId, prop: UiProperty) {
+  match prop {
+    UiProperty::Width(size) => ui_set_size_property(ui, 0, size),
+    UiProperty::Height(size) => ui_set_size_property(ui, 1, size),
+    UiProperty::MarginLeft(size) => ui_set_size_property(ui, 2, size),
+    UiProperty::MarginRight(size) => ui_set_size_property(ui, 3, size),
+    UiProperty::MarginTop(size) => ui_set_size_property(ui, 4, size),
+    UiProperty::MarginBottom(size) => ui_set_size_property(ui, 5, size),
+    UiProperty::PaddingLeft(size) => ui_set_size_property(ui, 6, size),
+    UiProperty::PaddingRight(size) => ui_set_size_property(ui, 7, size),
+    UiProperty::PaddingTop(size) => ui_set_size_property(ui, 8, size),
+    UiProperty::PaddingBottom(size) => ui_set_size_property(ui, 9, size),
+    UiProperty::BackgroundColor(c) => ui_set_color_property(ui, 10, c),
+    UiProperty::Column(column) => ui_set_uint_property(ui, 11, column),
+    UiProperty::TextSize(size) => ui_set_size_property(ui, 12, size),
+    UiProperty::TextWeight(weight) => ui_set_uint_property(ui, 13, weight),
+    UiProperty::TextColor(c) => ui_set_color_property(ui, 14, c),
+    UiProperty::WindowScenePage(scene_page) => ui_set_uint_property(ui, 15, scene_page.as_raw()),
+    UiProperty::ScenePageCanvas(canvas) => ui_set_uint_property(ui, 16, canvas.as_raw()),
+    UiProperty::ScenePageMessageArea(message_area) => ui_set_uint_property(ui, 17, message_area.as_raw()),
+    UiProperty::PageId(page_id) => ui_set_string_property(ui, 100, page_id),
+    UiProperty::OnClickLink(page_id) => ui_set_string_property(ui, 101, page_id),
+    UiProperty::Text(text) => ui_set_string_property(ui, 102, text),
+    UiProperty::TextFont(font) => ui_set_string_property(ui, 103, font),
+    UiProperty::BackgroundImage(path) => ui_set_string_property(ui, 104, path),
+    UiProperty::Image(path) => ui_set_string_property(ui, 105, path),
+    UiProperty::Id(id) => ui_set_string_property(ui, 106, id),
+  }
+}
+
+// ハンドラ (ホストが後で呼ぶ関数) を設定する。番号 (`HandlerKind`) はここにしか書かない。
+pub(package) fn ui_set_handler[S](ui: UiId, handler: UiEventHandler[S]) {
+  match handler {
+    UiEventHandler::WindowMainScene(h) => sys_ui_set_handler(ui.as_raw(), 0, h),
+    UiEventHandler::SceneStartButtonOnClick(h) => sys_ui_set_handler(ui.as_raw(), 1, h),
+  }
+}
+
+// Window に `WindowHandle` を預ける。番号 (`ValueKind`) はここにしか書かない。
+// ホストは scene を始めるときに、これをそのまま `SceneStartButton` の `on_click` に渡す。
+pub(package) fn ui_set_window_handle(ui: UiId, handle: WindowHandle) {
+  sys_ui_set_value(ui.as_raw(), 0, handle);
+}

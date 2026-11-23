@@ -13,8 +13,7 @@ import package::game::ui::apply_id;
 import package::game::ui::push_children;
 import package::game::ui::UiProperty;
 import package::game::ui::ScenePageId;
-import package::game::base_engine::ui_create_scene_page;
-import package::game::base_engine::ui_set_property;
+import package::game::runtime;
 
 // scene を映すページ (`docs/ui-api.md` の改訂版)。Window が 1 つだけ持つ。
 //
@@ -81,11 +80,11 @@ impl[S] ScenePage[S] {
   // 木を辿って syscall を発行し、その ID を返す。Window に結びつけるのは `Window::show`。
   // 出力先が子孫に置かれているかは、Window に結びつけた時点でエンジンが確かめる。
   pub(super) fn materialize(self) -> ScenePageId {
-    let id = ui_create_scene_page();
+    let id = runtime::ui::ui_create_scene_page();
     apply_id(id, self.id);
     apply_background(id, self.background);
-    ui_set_property(id, UiProperty::ScenePageCanvas(self.canvas));
-    ui_set_property(id, UiProperty::ScenePageMessageArea(self.message_area));
+    runtime::ui::ui_set_property(id, UiProperty::ScenePageCanvas(self.canvas));
+    runtime::ui::ui_set_property(id, UiProperty::ScenePageMessageArea(self.message_area));
     push_children(id, self.children);
     ScenePageId::new(id)
   }

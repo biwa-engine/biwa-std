@@ -13,9 +13,8 @@ import package::game::ui::apply_layout_properties;
 import package::game::ui::apply_id;
 import package::game::ui::apply_text_properties;
 import package::game::ui::UiId;
-import package::game::base_engine::ui_create;
 import package::game::ui::UiEventHandler;
-import package::game::base_engine::ui_set_handler;
+import package::game::runtime;
 
 // 押すと scene を始めるボタン。子は持てない。見た目の property は Link と同じ。
 //
@@ -166,7 +165,7 @@ impl[S] SceneStartButton[S] {
 
   // 木を辿って syscall を発行する。子を持てないため push_child は発行しない。
   pub(super) fn materialize(self) -> UiId {
-    let id = ui_create(self.into());
+    let id = runtime::ui::ui_create(self.into());
     apply_id(id, self.id);
     apply_layout_properties(
       id, self.width, self.height,
@@ -176,7 +175,7 @@ impl[S] SceneStartButton[S] {
     );
     apply_text_properties(id, self.text, self.text_font, self.text_size, self.text_weight, self.text_color);
     // `on_click` はホストに預ける (`docs/host-function-values.md`)。
-    ui_set_handler(id, UiEventHandler::SceneStartButtonOnClick(self.on_click));
+    runtime::ui::ui_set_handler(id, UiEventHandler::SceneStartButtonOnClick(self.on_click));
     id
   }
 }

@@ -20,14 +20,18 @@ import package::collections::Vec;
 import package::game::Game;
 import package::game::Scene;
 import package::game::config::Config;
+import package::game::sound::SoundBuses;
+import package::game::sound::GameSound;
 import package::game::font::TextWeight;
 import package::game::color::Color;
-import package::game::base_engine::content_push_text;
-import package::game::base_engine::content_flush;
-import package::game::base_engine::content_clear;
-import package::game::base_engine::ui_push_child;
-import package::game::base_engine::ui_set_property;
-import package::game::base_engine::wait;
+import package::game::color::Alpha;
+import package::game::image::Image;
+import package::game::canvas::CanvasObject;
+import package::game::canvas::Cx;
+import package::game::canvas::Cy;
+import package::game::canvas::Cw;
+import package::game::canvas::Ch;
+import package::game::runtime;
 
 pub import window::Window;
 pub import page::Page;
@@ -80,16 +84,19 @@ pub struct WindowHandle {
   message_area: MessageAreaHandle,
   // ゲームの設定 (`Window::config`)。プレイヤーが変える `UserConfig` もここにあり、プレイをまたいで続く。
   config: Config,
+  // 音のバスの木 (`Window::sound`。既定は `SoundBuses::standard()`)。出力に繋がっていて、プレイをまたいで続く。
+  sound: SoundBuses,
 }
 
 impl WindowHandle {
   // `Window::show()` だけが作る。出力先は ScenePage が必ず受け取るものなので `Option` ではない
   // (ScenePage の子孫に実体が置かれているかはエンジンが確かめる)。
-  pub(super) fn new(canvas: CanvasId, message_area: MessageAreaId, config: Config) -> Self {
+  pub(super) fn new(canvas: CanvasId, message_area: MessageAreaId, config: Config, sound: SoundBuses) -> Self {
     Self {
       canvas = CanvasHandle { ui_id = canvas.ui_id() },
       message_area = MessageAreaHandle { ui_id = message_area.ui_id() },
       config = config,
+      sound = sound,
     }
   }
 
@@ -97,7 +104,7 @@ impl WindowHandle {
   //
   // クリックはどの出力先にも属さないので ui_id を取らない。
   pub(super) fn wait(self) {
-    wait();
+    runtime::timeline::timeline_wait_click();
   }
 
   pub(super) fn canvas(self) -> CanvasHandle {
@@ -113,6 +120,11 @@ impl WindowHandle {
     self.config
   }
 
+  // 音のバスの木。返るのは Window が持つものそのもの。
+  pub(super) fn sound(self) -> GameSound {
+    GameSound::new(self.sound, self.config)
+  }
+
   // fn width(self) -> Uint;
   // fn height(self) -> Uint;
 }
@@ -124,10 +136,14 @@ pub struct CanvasHandle {
 }
 
 impl CanvasHandle {
-  // fn create_image(self, image: Image, x: Int, y: Int, width: Option[Uint], height: Option[Uint]);
-
   pub(super) fn ui_id(self) -> UiId {
     self.ui_id
+  }
+  
+  pub fn show(
+    self, image: Image, layer: Uint, x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha,
+  ) -> CanvasObject {
+    CanvasObject::create(image, self, layer, x, y, w, h, alpha)
   }
 }
 
@@ -147,17 +163,17 @@ impl MessageAreaHandle {
   // ここは設定を知らない。
   //
   pub(super) fn push_text(self, text: String, speed: Float, size: Size, weight: TextWeight, color: Color) {
-    content_push_text(self.ui_id, text, speed, size, weight, color);
+    runtime::content::content_push_text(self.ui_id, text, speed, size, weight, color);
   }
 
   // 積まれたものをまとめて出し始める。
   pub(super) fn flush(self) {
-    content_flush(self.ui_id);
+    runtime::content::content_flush(self.ui_id);
   }
 
   // 枠を空にする。呼ぶ時機を決めるのは std であってエンジンではない。
   pub(super) fn clear(self) {
-    content_clear(self.ui_id);
+    runtime::content::content_clear(self.ui_id);
   }
 
   // fn set_talker_name(self, name: String);
@@ -190,7 +206,7 @@ impl Size {
 // 実装方針・実装しながら確定した内容は `docs/ui-api-impl-status.md` を参照。
 //
 // 運用イメージ: syscall はコンストラクタの都度発行しない。
-// まず Biwa (Wasm runtime) 側で `UiElement` の値としての木を組み立て、
+// まず Biwa Language 側で `UiElement` の値としての木を組み立て、
 // 最後にその木を丸ごと再帰的に辿って syscall を発行し、
 // エンジン側にデータ構造をコピーする。Biwa 側の値が正で、
 // エンジンへは一方的に副作用として反映されるだけ、という
@@ -201,7 +217,7 @@ impl Size {
 // 型で表すためで、`docs/ui-api.md` の XML-based Syntax 節が
 // `UiElement` と `UiPage` (= ここでの `Page`) を別の型として扱っているのに合わせた。
 
-// UI Element の property。番号と値の詰め方 (エンジンとの ABI) は `base_engine::ui_set_property` が持つ。
+// UI Element の property。番号と値の詰め方 (エンジンとの ABI) は `runtime::ui::ui_set_property` が持つ。
 pub(super) enum UiProperty {
   Width(UiSize),
   Height(UiSize),
@@ -230,7 +246,7 @@ pub(super) enum UiProperty {
   Id(String),
 }
 
-// UI Element のハンドラ (ホストが後で呼ぶ関数)。番号は `base_engine::ui_set_handler` が持つ。
+// UI Element のハンドラ (ホストが後で呼ぶ関数)。
 pub(super) enum UiEventHandler[S] {
   WindowMainScene(Scene[S]),
   SceneStartButtonOnClick(fn(WindowHandle) -> Game[S]),
@@ -260,7 +276,7 @@ enum Background {
 // 未設定 (`None`) なら何もしない。
 fn apply_background(id: UiId, background: Option[Background]) {
   match background {
-    Some(background) => { ui_set_property(id, background.as_property()); }
+    Some(background) => { runtime::ui::ui_set_property(id, background.as_property()); }
     None => {}
   }
 }
@@ -278,7 +294,7 @@ impl Background {
 // エンジン側はこの文字列から ui_id を逆引きできる (Page の `canvas`/`message_area` 等で使う)。
 fn apply_id(id: UiId, name: Option[String]) {
   match name {
-    Some(name) => { ui_set_property(id, UiProperty::Id(name)); }
+    Some(name) => { runtime::ui::ui_set_property(id, UiProperty::Id(name)); }
     None => {}
   }
 }
@@ -316,7 +332,7 @@ fn apply_layout_properties(
 // `prop` は値からその property を作る関数 (`fn(v) { UiProperty::Width(v) }` など)。
 fn apply_size(id: UiId, size: Option[UiSize], prop: fn(UiSize) -> UiProperty) {
   match size {
-    Some(size) => { ui_set_property(id, prop(size)); }
+    Some(size) => { runtime::ui::ui_set_property(id, prop(size)); }
     None => {}
   }
 }
@@ -332,20 +348,20 @@ fn apply_text_properties(
   text_color: Option[Color],
 ) {
   match text {
-    Some(text) => { ui_set_property(id, UiProperty::Text(text)); }
+    Some(text) => { runtime::ui::ui_set_property(id, UiProperty::Text(text)); }
     None => {}
   }
   match text_font {
-    Some(text_font) => { ui_set_property(id, UiProperty::TextFont(text_font)); }
+    Some(text_font) => { runtime::ui::ui_set_property(id, UiProperty::TextFont(text_font)); }
     None => {}
   }
   apply_size(id, text_size, fn(v) { UiProperty::TextSize(v) });
   match text_weight {
-    Some(text_weight) => { ui_set_property(id, UiProperty::TextWeight(text_weight)); }
+    Some(text_weight) => { runtime::ui::ui_set_property(id, UiProperty::TextWeight(text_weight)); }
     None => {}
   }
   match text_color {
-    Some(text_color) => { ui_set_property(id, UiProperty::TextColor(text_color)); }
+    Some(text_color) => { runtime::ui::ui_set_property(id, UiProperty::TextColor(text_color)); }
     None => {}
   }
 }
@@ -356,7 +372,7 @@ fn push_children[S](parent_id: UiId, children: Vec[UiElement[S]]) {
   let i = 0;
   while i < children.len() {
     let child_id = children.get(i).unwrap().materialize();
-    ui_push_child(parent_id, child_id);
+    runtime::ui::ui_push_child(parent_id, child_id);
     i = i + 1;
   }
 }
@@ -398,7 +414,7 @@ impl[S] UiElement[S] {
 }
 
 // UI Element の id (エンジンが振る ui_id)。素の `Uint` と取り違えないよう包んである。
-// 中身を取り出すのはエンジンとの境界 (`base_engine`) だけである。
+// 中身を取り出すのはエンジンとの境界 (`mod runtime`) だけである。
 pub(super) struct UiId {
   value: Uint,
 }

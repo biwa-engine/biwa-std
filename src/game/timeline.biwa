@@ -1,0 +1,91 @@
+// タイムライン: 時間に沿って起こる演出と、scene の進行との同期。
+//
+// エンジンには時計が 2 つある。
+//
+// - **エンジン時計**: 遷移と `sleep` が乗る時間。ポーズ中は進まない (`performance.now()` などの実時間ではない)。
+// - **scene の進行**: クリックで進む。
+//
+// 演出 (canvas の遷移、音の開始・停止・フェード) はどれも、タイムラインに積んでから一斉に発火する。
+// 発火するときに、その演出を scene の進行に結びつけるか (`TimelineSync`) を決める。
+// 結びつけた演出は、クリックでまず畳まれ (終わりまで飛ぶ)、`await` が待つ対象になる。
+//
+// どの subsystem にも属さない、subsystem をまたぐ概念なのでここに置く。
+// エンジンとの取り決め (遷移の種類の番号など) は `runtime::timeline` だけが知っている。
+
+import package::time::Duration;
+
+// 発火した演出を scene の進行に結びつけるか。
+pub(super) enum TimelineSync {
+  // 結びつけない。クリックでは飛ばず、待たれもしない (BGM のフェード、背景の揺れなど)。
+  Free,
+  // 結びつける。クリックでまず畳まれ、`await` が終わりを待つ。
+  Sync,
+}
+
+// 1 つのパラメータを時間に沿ってどう動かすか。
+//
+// V: 値の型 (一度限りの遷移の目標値)
+// D: 差分の型 (周期的な遷移の振幅)
+//
+// パラメータごとに型が決まっている (canvas の x は `Transition[Cx, Cw]`、音の音量は `Transition[Volume, Volume]`)。
+pub(super) enum Transition[V, D] {
+  // そのパラメータの遷移を止める (今の値で止まる)。
+  None,
+  Linear(TransitionOnce[V]),
+  EaseIn(TransitionOnce[V]),
+  EaseOut(TransitionOnce[V]),
+  EaseInOut(TransitionOnce[V]),
+  EaseOutIn(TransitionOnce[V]),
+  Sin(TransitionLoop[D]),
+  Triangle(TransitionLoop[D]),
+  Square(TransitionLoop[D]),
+  Saw(TransitionLoop[D]),
+}
+
+// 一度限りの遷移: `duration` かけて `value` へ動く。
+pub(super) struct TransitionOnce[V] {
+  value: V,
+  duration: Duration,
+}
+
+// 周期的な遷移: 今の値を中心に `diff` の振幅で、`period` の周期で揺れる。
+pub(super) struct TransitionLoop[D] {
+  diff: D,
+  period: Duration,
+  continuity: TransitionContinuity,
+}
+
+// 周期的な遷移をいつまで続けるか。
+pub(super) enum TransitionContinuity {
+  Infinite,
+  For(Duration),
+}
+
+impl[V] TransitionOnce[V] {
+  pub(super) fn new(value: V, duration: Duration) -> Self {
+    Self { value = value, duration = duration }
+  }
+
+  pub(super) fn value(self) -> V { self.value }
+
+  pub(super) fn duration(self) -> Duration { self.duration }
+}
+
+impl[D] TransitionLoop[D] {
+  pub(super) fn new(diff: D, period: Duration, continuity: TransitionContinuity) -> Self {
+    Self { diff = diff, period = period, continuity = continuity }
+  }
+
+  pub(super) fn diff(self) -> D { self.diff }
+
+  pub(super) fn period(self) -> Duration { self.period }
+
+  pub(super) fn continuity(self) -> TransitionContinuity { self.continuity }
+}
+
+impl[V, D] Transition[V, D] {
+  // `duration` かけて `value` へ線形に動く。
+  pub(super) fn linear(value: V, duration: Duration) -> Self {
+    Transition::Linear(TransitionOnce::new(value, duration))
+  }
+}

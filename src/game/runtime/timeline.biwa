@@ -1,0 +1,190 @@
+// ---- Timeline ----
+//
+// 時間に沿って起こる演出と scene の進行との同期 (`std::game::timeline`)。
+// subsystem をまたぐ: 発火は canvas の遷移と音の開始・停止・遷移をまとめて始める。
+//
+// 遷移の種類 (kind) の番号はエンジンとの取り決めで、canvas と音で共通である
+// (一覧は engine の `src/engine/api/transition.ts`、ネイティブは `crates/core/src/transition.rs`)。
+
+import package::option::Option;
+import package::option::Option::Some;
+import package::option::Option::None;
+import package::convert::Into;
+import package::time::Duration;
+import package::game::timeline::TimelineSync;
+import package::game::timeline::Transition;
+import package::game::timeline::TransitionContinuity;
+
+// --- syscall thin shim ---
+
+// 積まれた演出 (canvas の遷移、音の開始・停止・stop_all・遷移) をまとめて発火する。オブジェクトを跨いで一斉に始まる。
+//
+// 置き換わるのは積まれた遷移が触れているパラメータだけなので、
+// 別のオブジェクトや別のパラメータで走っているアニメーションは壊れない。
+//
+// `sync` が 0 でなければ、この演出はテキストの進行と結びつく。
+// クリックはまずこれを完了させ、`sys_timeline_await_synced` が待つ対象にもなる。
+[[native(arch="wasm")]]
+fn sys_timeline_fire(sync: Uint) {{
+  local.get 0
+  call $sys_timeline_fire
+}}
+
+// sync で発火した演出 (有限の遷移・有限の音) がすべて終わるまでシーンを止める。
+[[native(arch="wasm")]]
+fn sys_timeline_await_synced() {{
+  call $sys_timeline_await_synced
+}}
+
+// エンジン時計の上で `ms` ミリ秒シーンを止める (ポーズ中は進まない)。
+[[native(arch="wasm")]]
+fn sys_timeline_sleep(ms: Uint) {{
+  local.get 0
+  call $sys_timeline_sleep
+}}
+
+// クリックが来るまで待つ。エンジンはクリックが来るまで scene を再開しない。
+[[native(arch="wasm")]]
+fn sys_timeline_wait_click() {{
+  call $sys_timeline_wait_click
+}}
+
+// --- wrapper with std types and its abstraction ---
+
+impl TimelineSync {
+  fn as_raw(self) -> Uint {
+    match self {
+      TimelineSync::Free => 0,
+      TimelineSync::Sync => 1,
+    }
+  }
+}
+
+pub(package) fn timeline_fire(sync: TimelineSync) {
+  sys_timeline_fire(sync.as_raw());
+}
+
+pub(package) fn timeline_await_synced() {
+  sys_timeline_await_synced();
+}
+
+pub(package) fn timeline_sleep(duration: Duration) {
+  sys_timeline_sleep(duration.as_ms());
+}
+
+pub(package) fn timeline_wait_click() {
+  sys_timeline_wait_click();
+}
+
+// 遷移を syscall の引数 (kind・値・時間) に割るための補助。各 subsystem の runtime が使う。
+impl[V, D] Transition[V, D] {
+  pub(super) fn as_raw_kind(self) -> Uint {
+    match self {
+      Transition::None => 0,
+      Transition::Linear(_) => 1,
+      Transition::EaseIn(_) => 2,
+      Transition::EaseOut(_) => 3,
+      Transition::EaseInOut(_) => 4,
+      Transition::EaseOutIn(_) => 5,
+      Transition::Sin(_) => 16,
+      Transition::Triangle(_) => 17,
+      Transition::Square(_) => 18,
+      Transition::Saw(_) => 19,
+    }
+  }
+
+  // syscall の `duration` (一度限りなら遷移時間、周期系なら周期)。
+  pub(super) fn as_duration(self) -> Duration {
+    match self {
+      Transition::None => Duration::ms(0),
+      Transition::Linear(once) => once.duration(),
+      Transition::EaseIn(once) => once.duration(),
+      Transition::EaseOut(once) => once.duration(),
+      Transition::EaseInOut(once) => once.duration(),
+      Transition::EaseOutIn(once) => once.duration(),
+      Transition::Sin(lo) => lo.period(),
+      Transition::Triangle(lo) => lo.period(),
+      Transition::Square(lo) => lo.period(),
+      Transition::Saw(lo) => lo.period(),
+    }
+  }
+
+  // syscall の値 (一度限りなら目標値、周期系なら振幅) を、値と差分の変換で求める。`None` は 0。
+  pub(super) fn as_fval_with(self, value: fn(V) -> Float, diff: fn(D) -> Float) -> Float {
+    match self {
+      Transition::None => 0.0,
+      Transition::Linear(once) => value(once.value()),
+      Transition::EaseIn(once) => value(once.value()),
+      Transition::EaseOut(once) => value(once.value()),
+      Transition::EaseInOut(once) => value(once.value()),
+      Transition::EaseOutIn(once) => value(once.value()),
+      Transition::Sin(lo) => diff(lo.diff()),
+      Transition::Triangle(lo) => diff(lo.diff()),
+      Transition::Square(lo) => diff(lo.diff()),
+      Transition::Saw(lo) => diff(lo.diff()),
+    }
+  }
+
+  // 同じ型の `None` (そのパラメータの遷移を止める遷移)。
+  //
+  // `Transition::None` と直接書くと、ペイロードが無いので
+  // 型引数 (V, D) がどこからも決まらない。戻り値を `Self` にして `self` の型から決める。
+  pub(super) fn stop(self) -> Self {
+    Transition::None
+  }
+
+  // 周期系で終わりがあるものは、終わる時刻 (発火からの遅れ) に `None` を積んで止める必要がある。
+  // エンジンの周期系の遷移は止まらないので、終わりは std がこうして作る。その時刻を返す。
+  pub(super) fn loop_end(self, after: Duration) -> Option[Duration] {
+    let opt_continuity = match self {
+      Transition::Sin(lo) => Some(lo.continuity()),
+      Transition::Triangle(lo) => Some(lo.continuity()),
+      Transition::Square(lo) => Some(lo.continuity()),
+      Transition::Saw(lo) => Some(lo.continuity()),
+      _ => None,
+    };
+    match opt_continuity {
+      Some(continuity) => {
+        match continuity {
+          TransitionContinuity::Infinite => None,
+          TransitionContinuity::For(until) => Some(after.add(until)),
+        }
+      },
+      None => None,
+    }
+  }
+}
+
+impl[V: Into[Float], D: Into[Float]] Transition[V, D] {
+  pub(super) fn as_fval(self) -> Float {
+    match self {
+      Transition::None => 0.0,
+      Transition::Linear(once) => once.value().into(),
+      Transition::EaseIn(once) => once.value().into(),
+      Transition::EaseOut(once) => once.value().into(),
+      Transition::EaseInOut(once) => once.value().into(),
+      Transition::EaseOutIn(once) => once.value().into(),
+      Transition::Sin(lo) => lo.diff().into(),
+      Transition::Triangle(lo) => lo.diff().into(),
+      Transition::Square(lo) => lo.diff().into(),
+      Transition::Saw(lo) => lo.diff().into(),
+    }
+  }
+}
+
+impl[V: Into[Uint], D: Into[Uint]] Transition[V, D] {
+  pub(super) fn as_uval(self) -> Uint {
+    match self {
+      Transition::None => 0,
+      Transition::Linear(once) => once.value().into(),
+      Transition::EaseIn(once) => once.value().into(),
+      Transition::EaseOut(once) => once.value().into(),
+      Transition::EaseInOut(once) => once.value().into(),
+      Transition::EaseOutIn(once) => once.value().into(),
+      Transition::Sin(lo) => lo.diff().into(),
+      Transition::Triangle(lo) => lo.diff().into(),
+      Transition::Square(lo) => lo.diff().into(),
+      Transition::Saw(lo) => lo.diff().into(),
+    }
+  }
+}
