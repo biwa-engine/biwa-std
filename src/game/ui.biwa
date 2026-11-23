@@ -21,8 +21,16 @@ import package::game::Game;
 import package::game::Scene;
 import package::game::config::Config;
 import package::game::sound::SoundBuses;
+import package::game::sound::GameSound;
 import package::game::font::TextWeight;
 import package::game::color::Color;
+import package::game::color::Alpha;
+import package::game::image::Image;
+import package::game::canvas::CanvasObject;
+import package::game::canvas::Cx;
+import package::game::canvas::Cy;
+import package::game::canvas::Cw;
+import package::game::canvas::Ch;
 import package::game::runtime;
 
 pub import window::Window;
@@ -113,8 +121,8 @@ impl WindowHandle {
   }
 
   // 音のバスの木。返るのは Window が持つものそのもの。
-  pub(super) fn sound(self) -> SoundBuses {
-    self.sound
+  pub(super) fn sound(self) -> GameSound {
+    GameSound::new(self.sound, self.config)
   }
 
   // fn width(self) -> Uint;
@@ -128,10 +136,14 @@ pub struct CanvasHandle {
 }
 
 impl CanvasHandle {
-  // fn create_image(self, image: Image, x: Int, y: Int, width: Option[Uint], height: Option[Uint]);
-
   pub(super) fn ui_id(self) -> UiId {
     self.ui_id
+  }
+  
+  pub fn show(
+    self, image: Image, layer: Uint, x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha,
+  ) -> CanvasObject {
+    CanvasObject::create(image, self, layer, x, y, w, h, alpha)
   }
 }
 

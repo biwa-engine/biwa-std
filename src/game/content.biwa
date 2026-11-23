@@ -155,7 +155,7 @@ fn content_flush_and_wait[S](game: Game[S]) {
   // プレイヤーが「ボイスを続ける」にしていれば止めない。
   if game.window.config().user().voice_continues() {
   } else {
-    game.window.sound().voice().stop_all(Duration::ms(0));
+    game.window.sound().buses().voice().stop_all(Duration::ms(0));
   }
   // **クリアするのはここである。** エンジンは自分の判断で消さない。
   // 「待つが消さない」API を将来足すときに、

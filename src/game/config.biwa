@@ -10,7 +10,7 @@ import package::game::ui::Size;
 import package::game::content::ContentSpeed;
 import package::option::Option;
 import package::option::Option::Some;
-import package::game::sound::Volumes;
+import package::game::sound::VolumeConfig;
 import package::game::sound::Ducking;
 
 pub struct Config {
@@ -39,7 +39,7 @@ pub struct DeveloperConfig {
   default_text_color: Color,
 
   // 開発者によって設定されるデフォルトの音量 (バスごと)。プレイヤーの設定の初期値になる。
-  default_volumes: Volumes,
+  default_volumes: VolumeConfig,
 
   // ボイスが鳴る間 BGM を下げるか (None なら下げない)。
   bgm_ducking: Option[Ducking],
@@ -55,7 +55,7 @@ pub(super) struct UserConfig {
   content_size: Size,
 
   // ユーザによって設定された音量。デフォルト値は DeveloperConfig.default_volumes
-  volumes: Volumes,
+  volumes: VolumeConfig,
 
   // `>>` でボイスを止めずに続けるか。
   voice_continues: Bool,
@@ -105,7 +105,7 @@ impl DeveloperConfig {
       default_content_speed = ContentSpeed::text_per_sec(30.0),
       default_content_size = Size::Vh(2.0),
       default_text_color = Color::white(),
-      default_volumes = Volumes::default(),
+      default_volumes = VolumeConfig::default(),
       bgm_ducking = Some(Ducking::default()),
     }
   }
@@ -121,7 +121,7 @@ impl DeveloperConfig {
       default_content_speed = default_content_speed,
       default_content_size = default_content_size,
       default_text_color = default_text_color,
-      default_volumes = Volumes::default(),
+      default_volumes = VolumeConfig::default(),
       bgm_ducking = Some(Ducking::default()),
     }
   }
@@ -131,7 +131,7 @@ impl DeveloperConfig {
   }
 
   // デフォルトの音量を変える。
-  pub fn with_volumes(self, v: Volumes) -> Self {
+  pub fn with_volumes(self, v: VolumeConfig) -> Self {
     self.default_volumes = v;
     self
   }
@@ -152,11 +152,11 @@ impl UserConfig {
     self.content_size
   }
 
-  pub(package) fn volumes(self) -> Volumes {
+  pub(package) fn volumes(self) -> VolumeConfig {
     self.volumes
   }
 
-  pub(package) fn set_volumes(self, v: Volumes) {
+  pub(package) fn set_volumes(self, v: VolumeConfig) {
     self.volumes = v;
   }
 

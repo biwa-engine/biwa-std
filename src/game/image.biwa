@@ -24,20 +24,4 @@ impl Image {
   pub(super) fn path(self) -> String {
     self.path
   }
-
-  // キャンバス上に描画する。
-  // CanvasObject を返すので、以降はそれを使ってアニメーションなどを操作する。
-  //
-  // `canvas` は出力先 (UI Element `Canvas`)。座標の原点はその中央で、
-  // 座標・大きさは canvas の範囲が -50.0 から 50.0 になる単位 (`std::game::canvas`)。
-  // **暫定の形**: 画像を直接描く API はいずれ std の抽象 (Character など) の
-  // 内側に隠れる想定なので、出力先はひとまず第一引数で受け取る。
-  //
-  // `w` / `h` の片方だけ Auto なら画像の縦横比を保つように、
-  // 両方 Auto なら画像の元の大きさ (px) で、エンジンが決める。
-  pub fn show_in_canvas(
-    self, canvas: CanvasHandle, layer: Uint, x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha,
-  ) -> CanvasObject {
-    CanvasObject::create(self, canvas, layer, x, y, w, h, alpha)
-  }
 }

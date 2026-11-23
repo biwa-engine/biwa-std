@@ -61,7 +61,7 @@ impl[P] Character[P] {
       current_visual = None,
       current_face = None,
       current_position = None,
-      voice_bus = Bus::under(game.window.sound().voice()),
+      voice_bus = Bus::under(game.window.sound().buses().voice()),
       window = game.window,
     }
   }
@@ -82,7 +82,7 @@ impl[P] Character[P] {
   // 透明 (alpha = 0) で出しておいて遷移で現す、という使い方をする。
   pub fn appear(self, layer: Uint, x: Cx, y: Cy, w: Cw, h: Ch, alpha: Alpha) -> Self {
     self.current_visual =
-      Some(self.default_visual.show_in_canvas(self.canvas(), layer, x, y, w, h, alpha));
+      Some(self.canvas().show(self.default_visual, layer, x, y, w, h, alpha));
     self.current_position = Some(Position::new(x, y));
 
     self

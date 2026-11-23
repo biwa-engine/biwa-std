@@ -519,7 +519,7 @@ impl Duck {
 // --- 既定の木と音量の設定 -----------------------------------------------------
 
 // プレイヤーが設定画面で変える音量 (バスごと)。
-pub struct Volumes {
+pub struct VolumeConfig {
   master: Volume,
   bgm: Volume,
   ambient: Volume,
@@ -528,14 +528,35 @@ pub struct Volumes {
   system: Volume,
 }
 
-impl Volumes {
+impl VolumeConfig {
   // master を -3 dB にして、音が重なったときの余裕を残す。他は 0 dB。
   pub fn default() -> Self {
-    Volumes::new(Volume::db(-3.0), Volume::db(0.0), Volume::db(0.0), Volume::db(0.0), Volume::db(0.0), Volume::db(0.0))
+    VolumeConfig::new(
+      Volume::db(-3.0),
+      Volume::db(0.0),
+      Volume::db(0.0),
+      Volume::db(0.0),
+      Volume::db(0.0),
+      Volume::db(0.0),
+    )
   }
 
-  pub fn new(master: Volume, bgm: Volume, ambient: Volume, se: Volume, voice: Volume, system: Volume) -> Self {
-    Self { master = master, bgm = bgm, ambient = ambient, se = se, voice = voice, system = system }
+  pub fn new(
+    master: Volume,
+    bgm: Volume,
+    ambient: Volume,
+    se: Volume,
+    voice: Volume,
+    system: Volume
+  ) -> Self {
+    Self {
+      master = master,
+      bgm = bgm,
+      ambient = ambient,
+      se = se,
+      voice = voice,
+      system = system
+    }
   }
 }
 
@@ -589,7 +610,7 @@ impl SoundBuses {
   pub fn system(self) -> Bus { self.system }
 
   // 音量の設定を各バスに反映する。鳴っている音にも効く。
-  pub(package) fn apply_volumes(self, v: Volumes) {
+  pub(package) fn apply_volumes(self, v: VolumeConfig) {
     self.master.set_volume(v.master);
     self.bgm.set_volume(v.bgm);
     self.ambient.set_volume(v.ambient);
@@ -648,12 +669,12 @@ impl GameSound {
     self.buses
   }
 
-  pub fn volumes(self) -> Volumes {
+  pub fn volumes(self) -> VolumeConfig {
     self.config.user().volumes()
   }
 
   // プレイヤーの音量の設定を変える。Window の設定を書き換えるので、プレイをまたいで残る。
-  pub fn set_volumes(self, v: Volumes) {
+  pub fn set_volumes(self, v: VolumeConfig) {
     self.config.user().set_volumes(v);
     self.buses.apply_volumes(v);
   }
@@ -661,31 +682,31 @@ impl GameSound {
 
 impl[S] Game[S] {
   pub fn sound(self) -> GameSound {
-    GameSound::new(self.window.sound(), self.window.config())
+    self.window.sound()
   }
 
   // SE を 1 回鳴らす。SE はラウドネス正規化をしない (大小を意図して付けていることが多いため)。
-  pub fn play_se(self, s: Sound) -> SoundObject {
-    self.window.sound().se().play(s, SoundPlayback::once())
+  pub fn se_play(self, s: Sound) -> SoundObject {
+    self.window.sound().buses().se().play(s, SoundPlayback::once())
   }
 
   // SE を鳴らして終わるまで待つ。クリックで飛ばせる (飛ばすと止まる)。
-  pub fn play_se_and_wait(self, s: Sound) -> SoundObject {
-    let object = self.window.sound().se().queue_play(s, SoundPlayback::once());
+  pub fn se_play_and_wait(self, s: Sound) -> SoundObject {
+    let object = self.window.sound().buses().se().queue_play(s, SoundPlayback::once());
     runtime::timeline::timeline_fire(TimelineSync::Sync);
     runtime::timeline::timeline_await_synced();
     object
   }
 
   // 環境音を止めるまで鳴らす。`fade` かけて大きくする。
-  pub fn play_ambient(self, s: Sound, fade: Duration) -> SoundObject {
+  pub fn ambient_play(self, s: Sound, fade: Duration) -> SoundObject {
     let playback = SoundPlayback::new(SoundRepetition::Infinite, Duration::ms(0), fade_in(fade), Loudness::AsIs);
-    self.window.sound().ambient().play(s, playback)
+    self.window.sound().buses().ambient().play(s, playback)
   }
 
   // BGM を替える。今の BGM を `fade` かけて下げながら、新しい BGM を `fade` かけて上げる (クロスフェード)。
   // 同じファイルが鳴っていれば何もしない。
-  pub fn change_bgm(self, s: Sound, fade: Duration) -> Self {
+  pub fn bgm_change(self, s: Sound, fade: Duration) -> Self {
     let same = match self.bgm.current {
       Some(cur) => runtime::string_eq(cur.path, s.path),
       None => FALSE,
@@ -694,7 +715,7 @@ impl[S] Game[S] {
     } else {
       self.bgm.queue_fade_out(fade);
       let playback = SoundPlayback::new(SoundRepetition::Infinite, Duration::ms(0), fade_in(fade), Loudness::Normalize);
-      let object = self.window.sound().bgm().queue_play(s, playback);
+      let object = self.window.sound().buses().bgm().queue_play(s, playback);
       runtime::timeline::timeline_fire(TimelineSync::Free);
       self.bgm.current = Some(CurrentBgm { path = s.path, object = object });
     }
@@ -702,7 +723,7 @@ impl[S] Game[S] {
   }
 
   // BGM を `fade` かけて止める。
-  pub fn stop_bgm(self, fade: Duration) -> Self {
+  pub fn bgm_stop(self, fade: Duration) -> Self {
     match self.bgm.current {
       Some(cur) => {
         cur.object.fade_out(fade);
