@@ -30,7 +30,8 @@ import package::game::sound::BusParent;
 import package::game::sound::BusEffect;
 import package::game::sound::SoundEffectId;
 import package::game::sound::FilterSlope;
-import package::game::sound::Ducking;
+import package::game::sound::DuckKey;
+import package::game::sound::DuckTiming;
 import package::game::runtime;
 
 // --- syscall thin shim ---
@@ -104,7 +105,7 @@ fn sys_sound_bus_set_param(bus: Uint, param: Uint, value: Float) {{
 // effect を作る。まだどのバスにも挿さない。パラメータはエンジンの既定値で始まる。
 //
 // kind: 1 = pass filter (cfg1: 傾き 0 = 12 dB/oct、1 = 24 dB/oct)、20 = compressor、
-// 30 = duck (cfg1: key のバス、cfg2: mode。0 = activity だけ)。
+// 30 = duck (cfg1: 0、cfg2: mode。0 = activity だけ。key は `sys_sound_effect_add_param` でぶら下げる)。
 [[native(arch="wasm")]]
 fn sys_sound_effect_create(kind: Uint, cfg1: Uint, cfg2: Uint) -> Uint {{
   local.get 0
@@ -113,23 +114,46 @@ fn sys_sound_effect_create(kind: Uint, cfg1: Uint, cfg2: Uint) -> Uint {{
   call $sys_sound_effect_create
 }}
 
-// effect のパラメータに遷移を積む。param の番号は effect の種類ごと (`PassFilterParam` など)。
+// effect にものをぶら下げる (duck の key など、`sys_sound_effect_create` では渡しきれない、数の決まらないもの)。
+// **バスに挿す前だけ**足せる。
+//
+// 足した順に、その param の index が 0, 1, 2 … と決まる。ぶら下げたものの実数のパラメータは、
+// その index で `sys_sound_effect_set_param` / `sys_sound_effect_add_transition` から変えられる。
+// 引数の意味は param ごとに決まっていて、使わないものは 0 でなければならない。
+//
+// - duck の key (param 2): i1 = key のバス、f1 = 下げ幅 [dB]。
 [[native(arch="wasm")]]
-fn sys_sound_effect_add_transition(effect: Uint, param: Uint, kind: Uint, value: Float, after: Uint, duration: Uint) {{
+fn sys_sound_effect_add_param(effect: Uint, param: Uint, i1: Uint, i2: Uint, f1: Float, f2: Float, f3: Float) {{
   local.get 0
   local.get 1
   local.get 2
   local.get 3
   local.get 4
   local.get 5
+  local.get 6
+  call $sys_sound_effect_add_param
+}}
+
+// effect のパラメータに遷移を積む。param の番号は effect の種類ごと (`PassFilterParam` など)。
+// index は、effect に 1 つだけあるパラメータなら 0、ぶら下げたもののパラメータならぶら下げた順。
+[[native(arch="wasm")]]
+fn sys_sound_effect_add_transition(effect: Uint, param: Uint, index: Uint, kind: Uint, value: Float, after: Uint, duration: Uint) {{
+  local.get 0
+  local.get 1
+  local.get 2
+  local.get 3
+  local.get 4
+  local.get 5
+  local.get 6
   call $sys_sound_effect_add_transition
 }}
 
 [[native(arch="wasm")]]
-fn sys_sound_effect_set_param(effect: Uint, param: Uint, value: Float) {{
+fn sys_sound_effect_set_param(effect: Uint, param: Uint, index: Uint, value: Float) {{
   local.get 0
   local.get 1
   local.get 2
+  local.get 3
   call $sys_sound_effect_set_param
 }}
 
@@ -327,19 +351,28 @@ impl CompressorParam {
 }
 
 enum DuckParam {
-  Amount,
   Attack,
   Release,
+  // ぶら下げる (add_param) key。
+  Key,
+  // key ごとの下げ幅 (index = key をぶら下げた順)。
+  KeyAmount,
 }
 
 impl DuckParam {
   fn as_raw(self) -> Uint {
     match self {
-      DuckParam::Amount => 0,
-      DuckParam::Attack => 1,
-      DuckParam::Release => 2,
+      DuckParam::Attack => 0,
+      DuckParam::Release => 1,
+      DuckParam::Key => 2,
+      DuckParam::KeyAmount => 3,
     }
   }
+}
+
+// effect に 1 つだけあるパラメータの index。
+fn single_index() -> Uint {
+  0
 }
 
 impl SoundRepetition {
@@ -429,7 +462,7 @@ pub(package) fn sound_effect_create_pass_filter(slope: FilterSlope, low_cut: Opt
 }
 
 fn sound_pass_filter_set_cutoff(filter: SoundEffectId, param: PassFilterParam, cutoff: Option[Hz]) {
-  sys_sound_effect_set_param(filter.as_raw(), param.as_raw(), param.as_raw_cutoff(cutoff));
+  sys_sound_effect_set_param(filter.as_raw(), param.as_raw(), single_index(), param.as_raw_cutoff(cutoff));
 }
 
 fn sound_pass_filter_add_cutoff_transition(
@@ -438,13 +471,15 @@ fn sound_pass_filter_add_cutoff_transition(
   sys_sound_effect_add_transition(
     filter.as_raw(),
     param.as_raw(),
+    single_index(),
     transition.as_raw_kind(),
     param.as_raw_cutoff_transition_value(transition),
     after.as_ms(),
     transition.as_duration().as_ms());
   match transition.loop_end(after) {
     Some(end) => {
-      sys_sound_effect_add_transition(filter.as_raw(), param.as_raw(), transition.stop().as_raw_kind(), 0.0, end.as_ms(), 0);
+      sys_sound_effect_add_transition(
+        filter.as_raw(), param.as_raw(), single_index(), transition.stop().as_raw_kind(), 0.0, end.as_ms(), 0);
     }
     None => {}
   }
@@ -474,25 +509,36 @@ pub(package) fn sound_effect_create_compressor(
   threshold: Volume, ratio: CompressionRatio, attack: Duration, release: Duration, makeup: Volume,
 ) -> SoundEffectId {
   let effect = sys_sound_effect_create(EffectKind::Compressor.as_raw(), 0, 0);
-  sys_sound_effect_set_param(effect, CompressorParam::Threshold.as_raw(), threshold.as_db());
-  sys_sound_effect_set_param(effect, CompressorParam::Ratio.as_raw(), ratio.as_ratio());
-  sys_sound_effect_set_param(effect, CompressorParam::Attack.as_raw(), duration_as_raw_param(attack));
-  sys_sound_effect_set_param(effect, CompressorParam::Release.as_raw(), duration_as_raw_param(release));
-  sys_sound_effect_set_param(effect, CompressorParam::Makeup.as_raw(), makeup.as_db());
+  sys_sound_effect_set_param(effect, CompressorParam::Threshold.as_raw(), single_index(), threshold.as_db());
+  sys_sound_effect_set_param(effect, CompressorParam::Ratio.as_raw(), single_index(), ratio.as_ratio());
+  sys_sound_effect_set_param(effect, CompressorParam::Attack.as_raw(), single_index(), duration_as_raw_param(attack));
+  sys_sound_effect_set_param(effect, CompressorParam::Release.as_raw(), single_index(), duration_as_raw_param(release));
+  sys_sound_effect_set_param(effect, CompressorParam::Makeup.as_raw(), single_index(), makeup.as_db());
   SoundEffectId::new(effect)
 }
 
-pub(package) fn sound_effect_create_duck(key: BusId, ducking: Ducking) -> SoundEffectId {
-  let effect = sys_sound_effect_create(EffectKind::Duck.as_raw(), key.as_raw(), DuckMode::Activity.as_raw());
+// duck を作り、key を順にぶら下げる。key の index は `keys` の中の位置になる。
+pub(package) fn sound_effect_create_duck(keys: Vec[DuckKey], timing: DuckTiming) -> SoundEffectId {
+  let effect = sys_sound_effect_create(EffectKind::Duck.as_raw(), 0, DuckMode::Activity.as_raw());
+  let i = 0;
+  while i < keys.len() {
+    let key = keys.get(i).unwrap();
+    sys_sound_effect_add_param(effect, DuckParam::Key.as_raw(), key.bus().id().as_raw(), 0, key.amount().as_db(), 0.0, 0.0);
+    i = i + 1;
+  }
   let id = SoundEffectId::new(effect);
-  sound_duck_set(id, ducking);
+  sound_duck_set_timing(id, timing);
   id
 }
 
-pub(package) fn sound_duck_set(duck: SoundEffectId, ducking: Ducking) {
-  sys_sound_effect_set_param(duck.as_raw(), DuckParam::Amount.as_raw(), ducking.amount().as_db());
-  sys_sound_effect_set_param(duck.as_raw(), DuckParam::Attack.as_raw(), duration_as_raw_param(ducking.attack()));
-  sys_sound_effect_set_param(duck.as_raw(), DuckParam::Release.as_raw(), duration_as_raw_param(ducking.release()));
+pub(package) fn sound_duck_set_timing(duck: SoundEffectId, timing: DuckTiming) {
+  sys_sound_effect_set_param(duck.as_raw(), DuckParam::Attack.as_raw(), single_index(), duration_as_raw_param(timing.attack()));
+  sys_sound_effect_set_param(duck.as_raw(), DuckParam::Release.as_raw(), single_index(), duration_as_raw_param(timing.release()));
+}
+
+// `key_index` 番目 (`sound_effect_create_duck` に渡した `keys` の中の位置) の key の下げ幅を変える。
+pub(package) fn sound_duck_set_key_amount(duck: SoundEffectId, key_index: Uint, amount: Volume) {
+  sys_sound_effect_set_param(duck.as_raw(), DuckParam::KeyAmount.as_raw(), key_index, amount.as_db());
 }
 
 // --- SoundObject ---

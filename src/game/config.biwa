@@ -11,7 +11,7 @@ import package::game::content::ContentSpeed;
 import package::option::Option;
 import package::option::Option::Some;
 import package::game::sound::VolumeConfig;
-import package::game::sound::Ducking;
+import package::game::sound::BgmDucking;
 
 pub struct Config {
   // 開発者によって設定されるconfig
@@ -41,8 +41,8 @@ pub struct DeveloperConfig {
   // 開発者によって設定されるデフォルトの音量 (バスごと)。プレイヤーの設定の初期値になる。
   default_volumes: VolumeConfig,
 
-  // ボイスが鳴る間 BGM を下げるか (None なら下げない)。
-  bgm_ducking: Option[Ducking],
+  // ボイスや SE が鳴る間 BGM を下げるか (None なら下げない)。
+  bgm_ducking: Option[BgmDucking],
 }
 
 pub(super) struct UserConfig {
@@ -106,7 +106,7 @@ impl DeveloperConfig {
       default_content_size = Size::Vh(2.0),
       default_text_color = Color::white(),
       default_volumes = VolumeConfig::default(),
-      bgm_ducking = Some(Ducking::default()),
+      bgm_ducking = Some(BgmDucking::default()),
     }
   }
 
@@ -122,11 +122,11 @@ impl DeveloperConfig {
       default_content_size = default_content_size,
       default_text_color = default_text_color,
       default_volumes = VolumeConfig::default(),
-      bgm_ducking = Some(Ducking::default()),
+      bgm_ducking = Some(BgmDucking::default()),
     }
   }
 
-  pub(package) fn bgm_ducking(self) -> Option[Ducking] {
+  pub(package) fn bgm_ducking(self) -> Option[BgmDucking] {
     self.bgm_ducking
   }
 
@@ -136,8 +136,8 @@ impl DeveloperConfig {
     self
   }
 
-  // ボイスが鳴る間の BGM の下げ方を変える (None なら下げない)。
-  pub fn with_bgm_ducking(self, d: Option[Ducking]) -> Self {
+  // ボイスや SE が鳴る間の BGM の下げ方を変える (None なら下げない)。
+  pub fn with_bgm_ducking(self, d: Option[BgmDucking]) -> Self {
     self.bgm_ducking = d;
     self
   }

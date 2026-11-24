@@ -468,51 +468,83 @@ impl Compressor {
   }
 }
 
-// ダッキングの量と速さ。`amount` だけ下げる。attack は下げに入る速さ、release は戻る速さ
-// (どちらも「下げ幅の全部を動く時間」。短すぎると音量が呼吸するように上下する。目安は attack 50〜100 ms、release 300〜800 ms)。
-pub struct Ducking {
+// ダッキングのきっかけ: `bus` (とその子孫) で音が鳴っている間、`amount` だけ下げる。
+pub struct DuckKey {
+  bus: Bus,
   amount: Volume,
+}
+
+impl DuckKey {
+  pub fn new(bus: Bus, amount: Volume) -> Self {
+    Self { bus = bus, amount = amount }
+  }
+
+  pub(super) fn bus(self) -> Bus { self.bus }
+  pub(super) fn amount(self) -> Volume { self.amount }
+}
+
+// ダッキングの速さ。attack は下げに入る速さ、release は戻る速さ
+// (どちらも「最も深い key の下げ幅の全部を動く時間」。短すぎると音量が呼吸するように上下する。
+// 目安は attack 50〜100 ms、release 300〜800 ms)。
+pub struct DuckTiming {
   attack: Duration,
   release: Duration,
 }
 
-impl Ducking {
-  pub fn new(amount: Volume, attack: Duration, release: Duration) -> Self {
-    Self { amount = amount, attack = attack, release = release }
+impl DuckTiming {
+  pub fn new(attack: Duration, release: Duration) -> Self {
+    Self { attack = attack, release = release }
   }
 
-  // ボイスが鳴る間 BGM を 10 dB 下げる、ノベルゲームの既定。
+  // attack 80 ms、release 500 ms。
   pub fn default() -> Self {
-    Ducking::new(Volume::db(-10.0), Duration::ms(80), Duration::ms(500))
+    DuckTiming::new(Duration::ms(80), Duration::ms(500))
   }
 
-  // 下げない。
-  pub fn none() -> Self {
-    Ducking::new(Volume::db(0.0), Duration::ms(80), Duration::ms(500))
-  }
-
-  pub(super) fn amount(self) -> Volume { self.amount }
   pub(super) fn attack(self) -> Duration { self.attack }
   pub(super) fn release(self) -> Duration { self.release }
 }
 
-// ダッキング。`key` のバス (とその子孫) で音が鳴っている間、このバスを下げる。
+// ダッキング。key のどれかで音が鳴っている間、このバスを下げる。
+//
+// 複数の key が同時に鳴っているときは、その中で最も深い下げ幅だけ下げる (足し合わせない)。
+// voice -10 dB と se -6 dB が重なれば -10 dB になる。
 pub struct Duck {
   id: SoundEffectId,
+  keys: Vec[DuckKey],
 }
 
 impl Duck {
-  pub fn new(key: Bus, ducking: Ducking) -> Self {
-    Self { id = runtime::sound::sound_effect_create_duck(key.id(), ducking) }
+  pub fn new(keys: Vec[DuckKey], timing: DuckTiming) -> Self {
+    Self { id = runtime::sound::sound_effect_create_duck(keys, timing), keys = keys }
   }
 
   pub(super) fn id(self) -> SoundEffectId {
     self.id
   }
 
-  // 量と速さを変える。すぐに効く。
-  pub fn set(self, ducking: Ducking) {
-    runtime::sound::sound_duck_set(self.id, ducking);
+  // 速さを変える。すぐに効く。
+  pub fn set_timing(self, timing: DuckTiming) {
+    runtime::sound::sound_duck_set_timing(self.id, timing);
+  }
+
+  // key の `bus` で鳴ったときの下げ幅を変える。すぐに効く。`bus` が key でなければ実行を打ち切る。
+  pub fn set_amount(self, bus: Bus, amount: Volume) {
+    runtime::sound::sound_duck_set_key_amount(self.id, self.key_index(bus, 0), amount);
+  }
+
+  // `bus` が `keys` の何番目か (`from` 番目から探す)。
+  fn key_index(self, bus: Bus, from: Uint) -> Uint {
+    match self.keys.get(from) {
+      Some(key) => {
+        if key.bus().id().as_raw() == bus.id().as_raw() {
+          from
+        } else {
+          self.key_index(bus, from + 1)
+        }
+      },
+      None => package::panic::abort(),
+    }
   }
 }
 
@@ -566,7 +598,7 @@ impl VolumeConfig {
 // master   (リミッタ。出力に繋がる)
 // ├─ voice
 // │   └─ voice/<キャラ> (`Character::new` が作る)
-// ├─ bgm   (ボイスが鳴る間だけ下がる)
+// ├─ bgm   (ボイスや SE が鳴る間だけ下がる)
 // ├─ ambient
 // ├─ se
 // └─ system (UI の音)
@@ -588,14 +620,18 @@ impl SoundBuses {
   // 音量とダッキングは `Window::show()` が設定 (`Config`) から当てるので、ここでは 0 dB・ダッキング無しで作る。
   pub fn standard() -> Self {
     let master = Bus::new(BusParent::Output, Volume::db(0.0), Vec::of(BusEffect::Compressor(Compressor::limiter())));
-    // bgm の duck が voice を key にするので、voice を先に作る。
+    // bgm の duck が voice と se を key にするので、それらを先に作る。
     let voice = Bus::under(master);
-    let bgm_duck = Duck::new(voice, Ducking::none());
+    let se = Bus::under(master);
+    let keys = Vec::new();
+    keys.push(DuckKey::new(voice, Volume::db(0.0)));
+    keys.push(DuckKey::new(se, Volume::db(0.0)));
+    let bgm_duck = Duck::new(keys, DuckTiming::default());
     Self {
       master = master,
       bgm = Bus::new(BusParent::Bus(master), Volume::db(0.0), Vec::of(BusEffect::Duck(bgm_duck))),
       ambient = Bus::under(master),
-      se = Bus::under(master),
+      se = se,
       voice = voice,
       system = Bus::under(master),
       bgm_duck = bgm_duck,
@@ -620,11 +656,36 @@ impl SoundBuses {
   }
 
   // `None` ならダッキングしない。
-  pub(package) fn apply_ducking(self, ducking: Option[Ducking]) {
+  pub(package) fn apply_ducking(self, ducking: Option[BgmDucking]) {
     match ducking {
-      Some(d) => { self.bgm_duck.set(d); }
-      None => { self.bgm_duck.set(Ducking::none()); }
+      Some(d) => {
+        self.bgm_duck.set_amount(self.voice, d.voice);
+        self.bgm_duck.set_amount(self.se, d.se);
+        self.bgm_duck.set_timing(d.timing);
+      }
+      None => {
+        self.bgm_duck.set_amount(self.voice, Volume::db(0.0));
+        self.bgm_duck.set_amount(self.se, Volume::db(0.0));
+      }
     }
+  }
+}
+
+// 既定の木で、ボイスや SE が鳴る間 BGM をどれだけ下げるか。両方鳴っていれば深い方だけ下げる。
+pub struct BgmDucking {
+  voice: Volume,
+  se: Volume,
+  timing: DuckTiming,
+}
+
+impl BgmDucking {
+  pub fn new(voice: Volume, se: Volume, timing: DuckTiming) -> Self {
+    Self { voice = voice, se = se, timing = timing }
+  }
+
+  // ボイスで 10 dB、SE で 6 dB 下げる、ノベルゲームの既定。
+  pub fn default() -> Self {
+    BgmDucking::new(Volume::db(-10.0), Volume::db(-6.0), DuckTiming::default())
   }
 }
 
